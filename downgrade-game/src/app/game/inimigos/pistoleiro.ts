@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { QUADRO } from '../sprites';
 import { Inimigo, Mundo } from './inimigo';
 
 const VISAO = 480;
@@ -14,8 +15,9 @@ export class Pistoleiro extends Inimigo {
   private readonly laser: Phaser.GameObjects.Graphics;
 
   constructor(scene: Phaser.Scene, x: number, y: number) {
-    super(scene, x, y, 0xff8c42);
+    super(scene, x, y, 'pistoleiro');
     this.laser = scene.add.graphics().setDepth(5);
+    this.play('pistoleiro-parado');
   }
 
   pensar(mundo: Mundo): void {
@@ -28,9 +30,10 @@ export class Pistoleiro extends Inimigo {
 
     if (this.estado === 'mirando') {
       this.direcao = Math.sign(mundo.marco.x - this.x) || this.direcao;
+      this.olhar();
       this.laser.clear();
       this.laser.lineStyle(1, 0xff2a6d, 0.85);
-      this.laser.lineBetween(this.x, this.y - 6, mundo.marco.x, mundo.marco.y);
+      this.laser.lineBetween(this.x + this.direcao * 14, this.y - 4, mundo.marco.x, mundo.marco.y);
     }
   }
 
@@ -46,14 +49,24 @@ export class Pistoleiro extends Inimigo {
 
   private mirar(mundo: Mundo): void {
     this.estado = 'mirando';
+    this.stop();
+    this.setFrame(QUADRO.pistoleiro.mirando);
+
     this.depois(MIRA_MS, () => {
       this.laser.clear();
       if (mundo.marcoVivo() && mundo.temVisao(this, mundo.marco)) {
-        const angulo = Phaser.Math.Angle.Between(this.x, this.y - 6, mundo.marco.x, mundo.marco.y);
-        mundo.dispararBala(this.x + Math.cos(angulo) * 18, this.y - 6 + Math.sin(angulo) * 18, angulo);
+        const ox = this.x + this.direcao * 14;
+        const oy = this.y - 4;
+        const angulo = Phaser.Math.Angle.Between(ox, oy, mundo.marco.x, mundo.marco.y);
+        mundo.dispararBala(ox + Math.cos(angulo) * 6, oy + Math.sin(angulo) * 6, angulo);
+        this.setFrame(QUADRO.pistoleiro.tiro);
+        this.depois(90, () => this.setFrame(QUADRO.pistoleiro.mirando));
       }
       this.estado = 'recarga';
-      this.depois(RECARGA_MS, () => (this.estado = 'vigiando'));
+      this.depois(RECARGA_MS, () => {
+        this.estado = 'vigiando';
+        this.play('pistoleiro-parado');
+      });
     });
   }
 }

@@ -2,7 +2,8 @@ import Phaser from 'phaser';
 import { Escama } from '../escama/escama';
 import { EVENTO_FASE_COMPLETA, ResultadoFase } from '../eventos';
 import { FASES, InfoFase, TILESETS, infoFase } from '../fases/fases';
-import { Inimigo, Mundo } from '../inimigos/inimigo';
+import { Inimigo, Mundo, Ponto } from '../inimigos/inimigo';
+import { CORPO_HUMANO, QUADRO, carregarSprites, criarAnimacoes } from '../sprites';
 import { Catador } from '../inimigos/catador';
 import { Pistoleiro } from '../inimigos/pistoleiro';
 
@@ -26,7 +27,11 @@ const DEV_LIBERAR_TUDO = true;
 
 type Teclas = Record<'W' | 'A' | 'D' | 'J' | 'Q' | 'R' | 'SPACE' | 'SHIFT', Phaser.Input.Keyboard.Key>;
 type Ret = Phaser.GameObjects.Rectangle;
+type Sprite = Phaser.GameObjects.Sprite;
 type Arma = 'espada' | 'canhao';
+
+/** Metade da altura do sprite humano (32x48): os pes ficam na base do quadro. */
+const MEIA_ALTURA = 24;
 
 export interface DadosFase {
   fase?: number;
@@ -39,19 +44,21 @@ export interface DadosFase {
  *  - `spawns` (objetos): marco, catador, pistoleiro, saida
  */
 export class FaseScene extends Phaser.Scene implements Mundo {
-  marco!: Ret;
+  marco!: Sprite;
   private info!: InfoFase;
   private escama!: Escama;
   private corpo!: Phaser.Physics.Arcade.Body;
   private corte!: Ret; // hitbox (invisivel)
   private corteCorpo!: Phaser.Physics.Arcade.Body;
-  private lamina!: Ret; // visual do corte, rotacionado para o mouse
+  private efeitoCorte!: Sprite; // arco do corte, rotacionado para o mouse
   private mira!: Phaser.GameObjects.Graphics;
+  private fundos: { img: Phaser.GameObjects.TileSprite; fator: number }[] = [];
+  private chuva?: Phaser.GameObjects.Particles.ParticleEmitter;
   private solidos!: Phaser.Tilemaps.TilemapLayer;
   private inimigos!: Phaser.Physics.Arcade.Group;
   private balas!: Phaser.Physics.Arcade.Group;
   private tirosMarco!: Phaser.Physics.Arcade.Group;
-  private saida!: Ret;
+  private saida!: Sprite;
   private filtroOvertime!: Ret;
   private barraVida!: Phaser.GameObjects.Graphics;
   private hud!: Phaser.GameObjects.Text;
@@ -81,6 +88,10 @@ export class FaseScene extends Phaser.Scene implements Mundo {
       if (!this.textures.exists(`tileset-${nome}`)) this.load.image(`tileset-${nome}`, url);
     }
     if (!this.cache.tilemap.exists(this.chaveMapa())) this.load.tilemapTiledJSON(this.chaveMapa(), this.info.mapa!);
+    for (const f of this.info.fundos ?? []) {
+      if (!this.textures.exists(f.url)) this.load.image(f.url, f.url);
+    }
+    carregarSprites(this);
   }
 
   private chaveMapa(): string {
@@ -103,8 +114,11 @@ export class FaseScene extends Phaser.Scene implements Mundo {
       this.registry.set(REG_MORTES, 0);
     }
 
+    criarAnimacoes(this);
+    this.criarFundos();
     const mapa = this.criarMapa();
     this.criarArmas();
+    this.criarChuva();
     this.criarHud();
 
     this.physics.world.setBounds(0, 0, mapa.widthInPixels, mapa.heightInPixels);
@@ -143,6 +157,7 @@ export class FaseScene extends Phaser.Scene implements Mundo {
 
     this.solidos = mapa.createLayer('solidos', tilesets)!;
     this.solidos.setCollisionByExclusion([-1]);
+    if (mapa.getLayer('decoracao')) mapa.createLayer('decoracao', tilesets); // sem colisao
 
     const fundo = (mapa as unknown as { backgroundColor?: string }).backgroundColor;
     if (fundo) this.cameras.main.setBackgroundColor(fundo);
@@ -161,20 +176,17 @@ export class FaseScene extends Phaser.Scene implements Mundo {
 
       switch (tipo) {
         case 'marco':
-          this.criarMarco(cx, base - 20);
+          this.criarMarco(cx, base - MEIA_ALTURA);
           break;
         case 'catador':
-          this.inimigos.add(new Catador(this, cx, base - 20, Number(props['patrulha'] ?? 80)));
+          this.adicionarInimigo(new Catador(this, cx, base - MEIA_ALTURA, Number(props['patrulha'] ?? 80)));
           break;
         case 'pistoleiro':
-          this.inimigos.add(new Pistoleiro(this, cx, base - 20));
+          this.adicionarInimigo(new Pistoleiro(this, cx, base - MEIA_ALTURA));
           break;
-        case 'saida': {
-          const sw = w || 32;
-          const sh = h || 80;
-          this.saida = this.add.rectangle(cx, base - sh / 2, sw, sh, 0x1b3d2a).setStrokeStyle(2, 0x3dff9a, 0.3);
+        case 'saida':
+          this.saida = this.add.sprite(cx, base - 40, 'saida', QUADRO.saida.fechada);
           break;
-        }
         default:
           console.warn(`[fase ${this.info.numero}] spawn desconhecido: "${tipo}"`);
       }
@@ -189,17 +201,54 @@ export class FaseScene extends Phaser.Scene implements Mundo {
   }
 
   private criarMarco(x: number, y: number): void {
-    this.marco = this.add.rectangle(x, y, 22, 40, 0x00f0ff).setDepth(2);
+    this.marco = this.add.sprite(x, y, 'marco', 0).setDepth(2);
     this.physics.add.existing(this.marco);
     this.corpo = this.marco.body as Phaser.Physics.Arcade.Body;
+    this.corpo.setSize(CORPO_HUMANO.w, CORPO_HUMANO.h).setOffset(CORPO_HUMANO.offsetX, CORPO_HUMANO.offsetY);
     this.corpo.setCollideWorldBounds(true);
+    this.marco.play('marco-parado');
+  }
+
+  private adicionarInimigo(i: Inimigo): void {
+    this.inimigos.add(i);
+    i.ajustarCorpo();
+  }
+
+  /** Camadas de fundo com parallax (ficam presas na tela e rolam a textura). */
+  private criarFundos(): void {
+    this.fundos = (this.info.fundos ?? []).map((f, i) => ({
+      img: this.add.tileSprite(0, 0, TELA_W, TELA_H + 4, f.url).setOrigin(0).setScrollFactor(0).setDepth(-10 + i),
+      fator: f.fator,
+    }));
+  }
+
+  /** Chuva acida diagonal (tambem desacelera no Overtime). */
+  private criarChuva(): void {
+    if (!this.textures.exists('gota')) {
+      const g = this.make.graphics({}, false);
+      g.fillStyle(0xb8a8e0, 1).fillRect(0, 0, 1, 7);
+      g.generateTexture('gota', 1, 7);
+      g.destroy();
+    }
+    this.chuva = this.add.particles(0, 0, 'gota', {
+      x: { min: -40, max: TELA_W + 160 },
+      y: -12,
+      lifespan: 800,
+      speedY: { min: 650, max: 850 },
+      speedX: { min: -170, max: -130 },
+      rotate: 11,
+      alpha: { min: 0.12, max: 0.4 },
+      quantity: 2,
+      frequency: 14,
+    }).setScrollFactor(0).setDepth(9);
   }
 
   private criarArmas(): void {
     // Espada: hitbox quadrada (Arcade nao rotaciona corpos) + lamina visual rotacionada
     const tamHitbox = this.escama.alcanceEspada() * 0.8;
     this.corte = this.add.rectangle(0, 0, tamHitbox, tamHitbox).setVisible(false);
-    this.lamina = this.add.rectangle(0, 0, this.escama.alcanceEspada(), 10, 0xffffff, 0.8).setVisible(false).setDepth(3);
+    // arco 48x48 com centro em (10, 24); escala 2 para cobrir a hitbox
+    this.efeitoCorte = this.add.sprite(0, 0, 'corte', 0).setOrigin(10 / 48, 0.5).setScale(2).setVisible(false).setDepth(3);
     this.physics.add.existing(this.corte);
     this.corteCorpo = this.corte.body as Phaser.Physics.Arcade.Body;
     this.corteCorpo.setAllowGravity(false);
@@ -254,6 +303,7 @@ export class FaseScene extends Phaser.Scene implements Mundo {
 
   override update(_time: number, delta: number): void {
     const t = this.teclas;
+    this.rolarFundos();
     if (this.concluida) return;
 
     this.desenharMira();
@@ -286,10 +336,12 @@ export class FaseScene extends Phaser.Scene implements Mundo {
     if (Phaser.Input.Keyboard.JustDown(t.J)) this.atacar();
     if (this.atacando) this.posicionarCorte();
 
+    this.animarMarco(vx);
+
     for (const i of this.inimigos.getChildren() as Inimigo[]) i.pensar(this);
 
     const restantes = this.inimigosVivos();
-    this.saida.setFillStyle(restantes === 0 ? 0x3dff9a : 0x1b3d2a, restantes === 0 ? 0.8 : 1);
+    this.saida.setFrame(restantes === 0 ? QUADRO.saida.aberta : QUADRO.saida.fechada);
     if (restantes === 0 && Phaser.Geom.Rectangle.Overlaps(this.marco.getBounds(), this.saida.getBounds())) {
       return this.concluir();
     }
@@ -303,7 +355,7 @@ export class FaseScene extends Phaser.Scene implements Mundo {
     return !this.morto && !this.concluida;
   }
 
-  temVisao(de: Ret, para: Ret): boolean {
+  temVisao(de: Ponto, para: Ponto): boolean {
     const linha = new Phaser.Geom.Line(de.x, de.y - 10, para.x, para.y - 10);
     return this.solidos.getTilesWithinShape(linha, { isColliding: true }).length === 0;
   }
@@ -323,7 +375,8 @@ export class FaseScene extends Phaser.Scene implements Mundo {
     this.definirOvertime(false);
     this.corpo.setVelocity(0, 0);
     this.corpo.enable = false;
-    this.marco.setFillStyle(0x555555);
+    this.marco.stop().setFrame(QUADRO.marco.morto).setTint(0x8a7a9a);
+    this.efeitoCorte.setVisible(false);
     this.cameras.main.shake(160, 0.01);
     this.cameras.main.flash(120, 255, 42, 109);
 
@@ -350,12 +403,13 @@ export class FaseScene extends Phaser.Scene implements Mundo {
     this.anguloCorte = this.anguloMira();
     this.direcao = Math.cos(this.anguloCorte) >= 0 ? 1 : -1;
     this.atacando = true;
-    this.lamina.setVisible(true);
+    this.efeitoCorte.setVisible(true).play('corte');
+    this.marco.play('marco-ataque');
     this.corteCorpo.enable = true;
     this.posicionarCorte();
     this.time.delayedCall(120, () => {
       this.atacando = false;
-      this.lamina.setVisible(false);
+      this.efeitoCorte.setVisible(false);
       this.corteCorpo.enable = false;
     });
   }
@@ -363,11 +417,33 @@ export class FaseScene extends Phaser.Scene implements Mundo {
   /** O corte acompanha Marco, mas o angulo fica travado no momento do golpe. */
   private posicionarCorte(): void {
     const dist = this.escama.alcanceEspada() / 2 + 8;
-    const x = this.marco.x + Math.cos(this.anguloCorte) * dist;
-    const y = this.marco.y + Math.sin(this.anguloCorte) * dist;
-    this.corte.setPosition(x, y);
-    this.corteCorpo.reset(x, y);
-    this.lamina.setPosition(x, y).setRotation(this.anguloCorte);
+    const cos = Math.cos(this.anguloCorte);
+    const sin = Math.sin(this.anguloCorte);
+    this.corte.setPosition(this.marco.x + cos * dist, this.marco.y + sin * dist);
+    this.corteCorpo.reset(this.corte.x, this.corte.y);
+    this.efeitoCorte.setPosition(this.marco.x + cos * 4, this.marco.y + sin * 4).setRotation(this.anguloCorte);
+  }
+
+  /** Escolhe a animacao do Marco pelo estado (ataque > ar > correndo > parado). */
+  private animarMarco(vx: number): void {
+    this.marco.setFlipX(this.direcao < 0);
+    if (this.marco.anims.isPlaying && this.marco.anims.currentAnim?.key === 'marco-ataque') return;
+    if (!this.corpo.blocked.down) {
+      this.marco.stop();
+      this.marco.setFrame(this.corpo.velocity.y < 0 ? QUADRO.marco.subindo : QUADRO.marco.caindo);
+    } else if (vx !== 0) {
+      this.marco.play('marco-correr', true);
+    } else {
+      this.marco.play('marco-parado', true);
+    }
+  }
+
+  private rolarFundos(): void {
+    const cam = this.cameras.main;
+    for (const f of this.fundos) {
+      f.img.tilePositionX = cam.scrollX * f.fator;
+      f.img.tilePositionY = cam.scrollY * f.fator;
+    }
   }
 
   private atirar(): void {
@@ -420,6 +496,7 @@ export class FaseScene extends Phaser.Scene implements Mundo {
     this.concluida = true;
     this.definirOvertime(false);
     this.corpo.setVelocity(0, 0);
+    this.marco.play('marco-parado');
 
     const resultado: ResultadoFase = {
       fase: this.info.numero,
@@ -452,8 +529,12 @@ export class FaseScene extends Phaser.Scene implements Mundo {
   }
 
   private definirOvertime(ativo: boolean): void {
+    const escala = ativo ? 1 / FATOR_OVERTIME : 1;
     this.physics.world.timeScale = ativo ? FATOR_OVERTIME : 1;
-    this.time.timeScale = ativo ? 1 / FATOR_OVERTIME : 1;
+    this.time.timeScale = escala;
+    this.anims.globalTimeScale = escala;
+    this.tweens.timeScale = escala;
+    if (this.chuva) this.chuva.timeScale = escala;
     this.filtroOvertime?.setFillStyle(0x6a00ff, ativo ? 0.18 : 0);
   }
 

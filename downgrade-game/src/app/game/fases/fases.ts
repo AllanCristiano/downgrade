@@ -3,15 +3,29 @@
  * `mapa` aponta para o JSON exportado do Tiled em public/assets/fases/.
  * Fases sem mapa ainda aparecem bloqueadas na selecao.
  */
+export interface Fundo {
+  url: string;
+  /** Velocidade do parallax: 0 = parado no ceu, 1 = anda junto com a fase. */
+  fator: number;
+}
+
 export interface InfoFase {
   numero: number;
   nome: string;
   ato: 'I — Sucata' | 'II — Cidade' | 'III — Ofídia';
   mapa?: string;
+  /** Camadas de fundo, da mais distante para a mais proxima. */
+  fundos?: Fundo[];
 }
 
+const FUNDOS_LIXAO: Fundo[] = [
+  { url: 'assets/fundos/lixao-ceu.png', fator: 0 },
+  { url: 'assets/fundos/lixao-cidade.png', fator: 0.15 },
+  { url: 'assets/fundos/lixao-montes.png', fator: 0.4 },
+];
+
 export const FASES: InfoFase[] = [
-  { numero: 1, nome: 'O Lixão', ato: 'I — Sucata', mapa: 'assets/fases/fase-1-lixao.json' },
+  { numero: 1, nome: 'O Lixão', ato: 'I — Sucata', mapa: 'assets/fases/fase-1-lixao.json', fundos: FUNDOS_LIXAO },
   { numero: 2, nome: 'O Desmanche', ato: 'I — Sucata' },
   { numero: 3, nome: 'A Torre de Prensa', ato: 'I — Sucata' },
   { numero: 4, nome: 'Mercado Noturno', ato: 'II — Cidade' },
@@ -33,5 +47,6 @@ export function infoFase(numero: number): InfoFase {
  * O nome no Tiled precisa ser igual a chave daqui (o validador Python tambem confere).
  */
 export const TILESETS: Record<string, string> = {
-  blocos: 'assets/tiles/blocos.png',
+  blocos: 'assets/tiles/blocos.png', // provisorio, para rascunhar fases
+  lixao: 'assets/tiles/lixao.png',
 };

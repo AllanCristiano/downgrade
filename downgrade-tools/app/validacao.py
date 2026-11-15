@@ -11,9 +11,10 @@ from typing import Any
 TAMANHO_TILE = 32
 CAMADA_SOLIDOS = "solidos"
 CAMADA_SPAWNS = "spawns"
+CAMADA_DECORACAO = "decoracao"  # opcional, sem colisao
 
 # Tilesets registrados no jogo (downgrade-game/src/app/game/fases/fases.ts -> TILESETS)
-TILESETS_CONHECIDOS = {"blocos"}
+TILESETS_CONHECIDOS = {"blocos", "lixao"}
 
 INIMIGOS = {"catador", "pistoleiro", "chefe"}
 SPAWNS_CONHECIDOS = {"marco", "saida"} | INIMIGOS
@@ -70,6 +71,13 @@ def validar_mapa(mapa: dict[str, Any], pasta_mapa: Path | None = None) -> dict[s
         erros.append(f"Camada '{CAMADA_SOLIDOS}': use o formato de camada 'CSV' (Map Properties > Tile Layer Format).")
     else:
         grade = solidos.get("data")
+
+    deco = por_nome.get(CAMADA_DECORACAO)
+    if deco is not None:
+        if deco.get("type") != "tilelayer":
+            erros.append(f"'{CAMADA_DECORACAO}' precisa ser uma camada de tiles.")
+        elif deco.get("encoding") or deco.get("compression"):
+            erros.append(f"Camada '{CAMADA_DECORACAO}': use o formato de camada 'CSV'.")
 
     if not spawns or spawns.get("type") != "objectgroup":
         erros.append(f"Falta a camada de objetos '{CAMADA_SPAWNS}'.")
