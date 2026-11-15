@@ -1,0 +1,4 @@
+{
+  "/api": { "target": "http://localhost:80", "secure": false },
+  "/tools": { "target": "http://localhost:80", "secure": false }
+}

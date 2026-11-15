@@ -1,0 +1,58 @@
+name: downgrade
+
+services:
+  # Nginx: serve o build do Angular + Phaser e faz proxy para /api e /tools
+  nginx:
+    build:
+      context: ./downgrade-game
+    container_name: downgrade-nginx
+    ports:
+      - "${APP_PORT:-80}:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api
+      - tools
+    restart: unless-stopped
+
+  # Java / Spring Boot: progresso, ranking, saves
+  api:
+    build:
+      context: ./downgrade-api
+    container_name: downgrade-api
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Python / FastAPI: ferramentas de level design (validacao de mapas Tiled)
+  tools:
+    build:
+      context: ./downgrade-tools
+    container_name: downgrade-tools
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    container_name: downgrade-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  db-data:

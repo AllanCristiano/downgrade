@@ -1,0 +1,15 @@
+server:
+  port: 8080
+  forward-headers-strategy: framework
+
+spring:
+  application:
+    name: downgrade-api
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:downgrade}
+    username: ${DB_USER:downgrade}
+    password: ${DB_PASSWORD:downgrade_dev}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
