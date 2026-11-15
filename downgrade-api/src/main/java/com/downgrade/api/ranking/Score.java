@@ -22,20 +22,26 @@ public class Score {
     @Column(nullable = false)
     private long timeMs;
 
+    /** Quantas vezes Marco morreu ate completar a fase. */
+    @Column(nullable = false)
+    private int deaths;
+
     @Column(nullable = false)
     private Instant createdAt = Instant.now();
 
     protected Score() {}
 
-    public Score(String player, int level, long timeMs) {
+    public Score(String player, int level, long timeMs, int deaths) {
         this.player = player;
         this.level = level;
         this.timeMs = timeMs;
+        this.deaths = deaths;
     }
 
     public Long getId() { return id; }
     public String getPlayer() { return player; }
     public int getLevel() { return level; }
     public long getTimeMs() { return timeMs; }
+    public int getDeaths() { return deaths; }
     public Instant getCreatedAt() { return createdAt; }
 }

@@ -1,28 +1,49 @@
 import Phaser from 'phaser';
 import { Escama } from '../escama/escama';
+import { EVENTO_FASE_COMPLETA, ResultadoFase } from '../eventos';
+import { Inimigo, Mundo } from '../inimigos/inimigo';
+import { Catador } from '../inimigos/catador';
+import { Pistoleiro } from '../inimigos/pistoleiro';
 
-const W = 960;
-const H = 540;
+const TELA_W = 960;
+const TELA_H = 540;
+const MUNDO_W = 1920;
 const VELOCIDADE = 280;
 const PULO = 560;
 const FATOR_OVERTIME = 3;
 const VIDA_MAX = 100;
+const VEL_BALA = 520;
 
-/** Em desenvolvimento libera Canhao e Overtime para testar. Na campanha eles vem da historia. */
+const FASE = 1;
+const NOME_FASE = 'Fase 1 — O Lixão';
+
+// Chaves no registry do jogo: sobrevivem ao restart da cena (tempo e mortes da tentativa)
+const REG_INICIO = 'fase.inicio';
+const REG_MORTES = 'fase.mortes';
+
+/**
+ * Em desenvolvimento: Espada nv 2 (rebate balas) e Canhao/Overtime liberados para teste.
+ * Na campanha, a fase 1 comeca so com Espada nv 0.
+ */
 const DEV_LIBERAR_TUDO = true;
 
 type Teclas = Record<'W' | 'A' | 'D' | 'J' | 'K' | 'R' | 'SPACE' | 'SHIFT', Phaser.Input.Keyboard.Key>;
+type Ret = Phaser.GameObjects.Rectangle;
 
-/** Fase 1 — O Lixão (prototipo). Marco acabou de acordar a Escama Zero. */
-export class LixaoScene extends Phaser.Scene {
+/** Fase 1 — O Lixão. Marco acabou de acordar a Escama e os Catadores do Rato vieram atrás. */
+export class LixaoScene extends Phaser.Scene implements Mundo {
+  marco!: Ret;
   private escama!: Escama;
-  private marco!: Phaser.GameObjects.Rectangle;
   private corpo!: Phaser.Physics.Arcade.Body;
-  private corte!: Phaser.GameObjects.Rectangle;
+  private corte!: Ret;
   private corteCorpo!: Phaser.Physics.Arcade.Body;
-  private tiros!: Phaser.Physics.Arcade.Group;
-  private inimigos!: Phaser.Physics.Arcade.StaticGroup;
-  private filtroOvertime!: Phaser.GameObjects.Rectangle;
+  private solidos!: Phaser.Physics.Arcade.StaticGroup;
+  private bordasSolidos: Phaser.Geom.Rectangle[] = [];
+  private inimigos!: Phaser.Physics.Arcade.Group;
+  private balas!: Phaser.Physics.Arcade.Group;
+  private tirosMarco!: Phaser.Physics.Arcade.Group;
+  private saida!: Ret;
+  private filtroOvertime!: Ret;
   private barraVida!: Phaser.GameObjects.Graphics;
   private hud!: Phaser.GameObjects.Text;
   private teclas!: Teclas;
@@ -32,79 +53,171 @@ export class LixaoScene extends Phaser.Scene {
   private atacando = false;
   private ultimoTiro = 0;
   private morto = false;
+  private concluida = false;
 
   constructor() {
     super('lixao');
   }
 
+  // ------------------------------------------------------------------ setup
+
   create(): void {
-    this.escama = new Escama();
-    if (DEV_LIBERAR_TUDO) {
-      this.escama.absorver('canhao');
-      this.escama.absorver('overtime');
-    }
+    this.prepararEscama();
     this.vida = VIDA_MAX;
     this.direcao = 1;
     this.atacando = false;
     this.morto = false;
+    this.concluida = false;
 
-    // Pilhas de sucata
-    const solidos = this.physics.add.staticGroup();
-    solidos.add(this.add.rectangle(W / 2, H - 20, W, 40, 0x2a1b3d));
-    solidos.add(this.add.rectangle(300, 380, 200, 16, 0x3d2a5c));
-    solidos.add(this.add.rectangle(680, 290, 220, 16, 0x3d2a5c));
+    if (this.registry.get(REG_INICIO) === undefined) {
+      this.registry.set(REG_INICIO, performance.now());
+      this.registry.set(REG_MORTES, 0);
+    }
 
-    // Marco
-    this.marco = this.add.rectangle(80, H - 80, 22, 40, 0x00f0ff);
+    this.physics.world.setBounds(0, 0, MUNDO_W, TELA_H);
+    this.cameras.main.setBounds(0, 0, MUNDO_W, TELA_H);
+
+    this.criarCenario();
+    this.criarMarco();
+    this.criarInimigos();
+    this.criarArmas();
+    this.criarHud();
+
+    this.cameras.main.startFollow(this.marco, true, 0.12, 0.12);
+
+    this.input.keyboard!.enableGlobalCapture();
+    this.teclas = this.input.keyboard!.addKeys('W,A,D,J,K,R,SPACE,SHIFT') as Teclas;
+    this.input.on('pointerdown', () => (this.morto ? this.tentarDeNovo() : this.atacar()));
+  }
+
+  private prepararEscama(): void {
+    this.escama = new Escama();
+    if (DEV_LIBERAR_TUDO) {
+      this.escama.fragmentos = 2;
+      this.escama.upar('espada');
+      this.escama.upar('espada');
+      this.escama.absorver('canhao');
+      this.escama.absorver('overtime');
+    }
+  }
+
+  private criarCenario(): void {
+    // Montes de sucata do Aterro 9
+    const blocos: [number, number, number, number][] = [
+      [MUNDO_W / 2, TELA_H - 20, MUNDO_W, 40], // chao
+      [300, 380, 200, 16],
+      [640, 300, 180, 16],
+      [900, 400, 160, 16],
+      [1150, 455, 60, 90], // pilha de sucata (pular por cima)
+      [1400, 360, 200, 16],
+      [1700, 280, 160, 16],
+    ];
+    this.solidos = this.physics.add.staticGroup();
+    this.bordasSolidos = [];
+    for (const [x, y, w, h] of blocos) {
+      const r = this.add.rectangle(x, y, w, h, h > 20 ? 0x2a1b3d : 0x3d2a5c);
+      this.solidos.add(r);
+      this.bordasSolidos.push(r.getBounds());
+    }
+
+    // Saida: so abre com o lixao limpo
+    this.saida = this.add.rectangle(MUNDO_W - 30, TELA_H - 80, 30, 80, 0x1b3d2a).setStrokeStyle(2, 0x3dff9a, 0.3);
+  }
+
+  private criarMarco(): void {
+    this.marco = this.add.rectangle(60, TELA_H - 60, 22, 40, 0x00f0ff).setDepth(2);
     this.physics.add.existing(this.marco);
     this.corpo = this.marco.body as Phaser.Physics.Arcade.Body;
     this.corpo.setCollideWorldBounds(true);
-    this.physics.add.collider(this.marco, solidos);
+    this.physics.add.collider(this.marco, this.solidos);
+  }
 
-    // Catadores com Escamas piratas
-    this.inimigos = this.physics.add.staticGroup();
-    for (const [x, y] of [[300, 352], [680, 262], [880, 500], [520, 500]]) {
-      this.inimigos.add(this.add.rectangle(x, y, 22, 40, 0xff2a6d));
-    }
+  private criarInimigos(): void {
+    this.inimigos = this.physics.add.group({ collideWorldBounds: true });
+    const chao = TELA_H - 60;
+    const lista: Inimigo[] = [
+      new Catador(this, 520, chao, 80),
+      new Pistoleiro(this, 300, 352),
+      new Catador(this, 900, 372, 50),
+      new Catador(this, 1300, chao, 100),
+      new Pistoleiro(this, 1400, 332),
+      new Catador(this, 1620, chao, 80),
+      new Pistoleiro(this, 1700, 252),
+    ];
+    for (const i of lista) this.inimigos.add(i);
+    this.physics.add.collider(this.inimigos, this.solidos);
+  }
 
+  private criarArmas(): void {
     // Espada
-    this.corte = this.add.rectangle(0, 0, this.escama.alcanceEspada(), 34, 0xffffff, 0.6).setVisible(false);
+    this.corte = this.add.rectangle(0, 0, this.escama.alcanceEspada(), 34, 0xffffff, 0.6).setVisible(false).setDepth(3);
     this.physics.add.existing(this.corte);
     this.corteCorpo = this.corte.body as Phaser.Physics.Arcade.Body;
     this.corteCorpo.setAllowGravity(false);
     this.corteCorpo.enable = false;
-    this.physics.add.overlap(this.corte, this.inimigos, (_c, inimigo) => this.matar(inimigo as Phaser.GameObjects.Rectangle));
 
-    // Canhao
-    this.tiros = this.physics.add.group({ allowGravity: false });
-    this.physics.add.overlap(this.tiros, this.inimigos, (_t, inimigo) => this.matar(inimigo as Phaser.GameObjects.Rectangle));
-    this.physics.add.collider(this.tiros, solidos, (tiro) => (tiro as Phaser.GameObjects.Rectangle).destroy());
+    this.balas = this.physics.add.group({ allowGravity: false });
+    this.tirosMarco = this.physics.add.group({ allowGravity: false });
 
-    // HUD
-    this.filtroOvertime = this.add.rectangle(W / 2, H / 2, W, H, 0x6a00ff, 0).setDepth(10);
-    this.barraVida = this.add.graphics().setDepth(11);
-    this.hud = this.add.text(16, 34, '', { fontFamily: 'Courier New', fontSize: '15px', color: '#e8e6ff' }).setDepth(11);
+    // Espada mata inimigos
+    this.physics.add.overlap(this.corte, this.inimigos, (a, b) => this.acertar(this.comoInimigo(a, b), this.direcao));
 
-    this.teclas = this.input.keyboard!.addKeys('W,A,D,J,K,R,SPACE,SHIFT') as Teclas;
-    this.input.on('pointerdown', () => this.atacar());
+    // Espada nv 2+ rebate balas
+    this.physics.add.overlap(this.corte, this.balas, (a, b) => this.rebater(this.comoBala(a, b)));
+
+    // Bala inimiga mata Marco; bala rebatida mata inimigo
+    this.physics.add.overlap(this.marco, this.balas, (a, b) => {
+      const bala = this.comoBala(a, b);
+      if (!bala.getData('rebatida')) {
+        bala.destroy();
+        this.matarMarco('Levou um tiro.');
+      }
+    });
+    this.physics.add.overlap(this.balas, this.inimigos, (a, b) => {
+      const bala = this.comoBala(a, b);
+      if (!bala.getData('rebatida')) return;
+      const inimigo = this.comoInimigo(a, b);
+      this.acertar(inimigo, Math.sign(bala.body!.velocity.x) || 1);
+      bala.destroy();
+    });
+
+    // Canhao de Marco
+    this.physics.add.overlap(this.tirosMarco, this.inimigos, (a, b) => {
+      const tiro = this.comoBala(a, b);
+      this.acertar(this.comoInimigo(a, b), Math.sign(tiro.body!.velocity.x) || 1);
+    });
+
+    // Tudo que voa morre na parede
+    this.physics.add.collider(this.balas, this.solidos, (a, b) => this.comoBala(a, b).destroy());
+    this.physics.add.collider(this.tirosMarco, this.solidos, (a, b) => this.comoBala(a, b).destroy());
   }
+
+  private criarHud(): void {
+    this.filtroOvertime = this.add.rectangle(TELA_W / 2, TELA_H / 2, TELA_W, TELA_H, 0x6a00ff, 0)
+      .setScrollFactor(0).setDepth(10);
+    this.barraVida = this.add.graphics().setScrollFactor(0).setDepth(11);
+    this.hud = this.add.text(16, 34, '', { fontFamily: 'Courier New', fontSize: '15px', color: '#e8e6ff' })
+      .setScrollFactor(0).setDepth(11);
+  }
+
+  // ------------------------------------------------------------------ loop
 
   override update(_time: number, delta: number): void {
     const t = this.teclas;
+    if (this.concluida) return;
 
-    if (Phaser.Input.Keyboard.JustDown(t.R)) {
-      this.definirOvertime(false);
-      this.scene.restart();
+    if (this.morto) {
+      if (Phaser.Input.Keyboard.JustDown(t.R) || Phaser.Input.Keyboard.JustDown(t.J)) this.tentarDeNovo();
       return;
     }
-    if (this.morto) return;
+    if (Phaser.Input.Keyboard.JustDown(t.R)) return this.tentarDeNovo();
 
-    // Overtime: camera lenta que drena vida (delta e tempo real, nao e afetado pela camera lenta)
-    const overtime = this.escama.tem('overtime') && t.SHIFT.isDown && this.vida > 0;
+    // Overtime: camera lenta que drena vida (delta e tempo real)
+    const overtime = this.escama.tem('overtime') && t.SHIFT.isDown;
     this.definirOvertime(overtime);
     if (overtime) {
       this.vida = Math.max(0, this.vida - this.escama.drenoOvertime() * (delta / 1000));
-      if (this.vida <= 0) return this.morrer('A Escama consumiu Marco. Overtime demais.');
+      if (this.vida <= 0) return this.matarMarco('A Escama consumiu Marco. Overtime demais.');
     }
 
     // Movimento
@@ -113,27 +226,69 @@ export class LixaoScene extends Phaser.Scene {
     if (t.D.isDown) vx += VELOCIDADE;
     if (vx !== 0) this.direcao = Math.sign(vx);
     this.corpo.setVelocityX(vx);
-
     if ((Phaser.Input.Keyboard.JustDown(t.W) || Phaser.Input.Keyboard.JustDown(t.SPACE)) && this.corpo.blocked.down) {
       this.corpo.setVelocityY(-PULO);
     }
 
     if (Phaser.Input.Keyboard.JustDown(t.J)) this.atacar();
     if (Phaser.Input.Keyboard.JustDown(t.K)) this.atirar();
+    if (this.atacando) this.posicionarCorte();
 
-    if (this.atacando) {
-      this.corte.setPosition(this.marco.x + this.direcao * (this.escama.alcanceEspada() / 2 + 11), this.marco.y);
-      this.corteCorpo.reset(this.corte.x, this.corte.y);
+    for (const i of this.inimigos.getChildren() as Inimigo[]) i.pensar(this);
+
+    const restantes = this.inimigosVivos();
+    this.saida.setFillStyle(restantes === 0 ? 0x3dff9a : 0x1b3d2a, restantes === 0 ? 0.8 : 1);
+    if (restantes === 0 && Phaser.Geom.Rectangle.Overlaps(this.marco.getBounds(), this.saida.getBounds())) {
+      return this.concluir();
     }
 
-    this.desenharHud(overtime);
+    this.desenharHud(overtime, restantes);
   }
 
+  // ------------------------------------------------------------------ Mundo (usado pelos inimigos)
+
+  marcoVivo(): boolean {
+    return !this.morto && !this.concluida;
+  }
+
+  temVisao(de: Ret, para: Ret): boolean {
+    const linha = new Phaser.Geom.Line(de.x, de.y - 10, para.x, para.y - 10);
+    return !this.bordasSolidos.some((r) => Phaser.Geom.Intersects.LineToRectangle(linha, r));
+  }
+
+  dispararBala(x: number, y: number, angulo: number): void {
+    const bala = this.add.rectangle(x, y, 10, 4, 0xff2a6d).setRotation(angulo).setDepth(4);
+    bala.setData('bala', true);
+    this.balas.add(bala);
+    this.physics.velocityFromRotation(angulo, VEL_BALA, (bala.body as Phaser.Physics.Arcade.Body).velocity);
+    this.time.delayedCall(2500, () => bala.destroy());
+  }
+
+  matarMarco(motivo: string): void {
+    if (this.morto || this.concluida) return;
+    this.morto = true;
+    this.registry.inc(REG_MORTES, 1);
+    this.definirOvertime(false);
+    this.corpo.setVelocity(0, 0);
+    this.corpo.enable = false;
+    this.marco.setFillStyle(0x555555);
+    this.cameras.main.shake(160, 0.01);
+    this.cameras.main.flash(120, 255, 42, 109);
+
+    this.add.text(TELA_W / 2, TELA_H / 2, `${motivo}\n\nR · J · clique para tentar de novo`, {
+      fontFamily: 'Courier New', fontSize: '22px', color: '#ff2a6d', align: 'center',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(12);
+    this.desenharHud(false, this.inimigosVivos());
+  }
+
+  // ------------------------------------------------------------------ acoes de Marco
+
   private atacar(): void {
-    if (this.atacando || this.morto) return;
+    if (this.atacando || this.morto || this.concluida) return;
     this.atacando = true;
     this.corte.setVisible(true);
     this.corteCorpo.enable = true;
+    this.posicionarCorte();
     this.time.delayedCall(120, () => {
       this.atacando = false;
       this.corte.setVisible(false);
@@ -141,49 +296,97 @@ export class LixaoScene extends Phaser.Scene {
     });
   }
 
+  private posicionarCorte(): void {
+    this.corte.setPosition(this.marco.x + this.direcao * (this.escama.alcanceEspada() / 2 + 11), this.marco.y);
+    this.corteCorpo.reset(this.corte.x, this.corte.y);
+  }
+
   private atirar(): void {
-    if (!this.escama.tem('canhao') || this.morto) return;
+    if (!this.escama.tem('canhao')) return;
     if (this.time.now - this.ultimoTiro < this.escama.recargaCanhao()) return;
     this.ultimoTiro = this.time.now;
 
-    const tiro = this.add.rectangle(this.marco.x + this.direcao * 16, this.marco.y - 4, 14, 4, 0xffd166);
-    this.tiros.add(tiro);
+    const tiro = this.add.rectangle(this.marco.x + this.direcao * 16, this.marco.y - 4, 14, 4, 0xffd166).setDepth(4);
+    tiro.setData('bala', true);
+    this.tirosMarco.add(tiro);
     (tiro.body as Phaser.Physics.Arcade.Body).setVelocityX(this.direcao * 900);
     this.time.delayedCall(1200, () => tiro.destroy());
   }
 
-  private matar(inimigo: Phaser.GameObjects.Rectangle): void {
-    this.cameras.main.shake(80, 0.006);
-    inimigo.destroy();
+  private rebater(bala: Ret): void {
+    if (this.escama.nivel('espada') < 2 || bala.getData('rebatida')) return;
+    const corpo = bala.body as Phaser.Physics.Arcade.Body;
+    corpo.velocity.scale(-1.4);
+    bala.setData('rebatida', true);
+    bala.setFillStyle(0x00f0ff);
+    bala.setRotation(bala.rotation + Math.PI);
+    this.cameras.main.shake(60, 0.004);
   }
 
-  private morrer(msg: string): void {
-    this.morto = true;
+  private acertar(inimigo: Inimigo, direcao: number): void {
+    if (!inimigo.vivo) return;
+    inimigo.morrer(direcao);
+    this.cameras.main.shake(80, 0.006);
+  }
+
+  // ------------------------------------------------------------------ fluxo da fase
+
+  private tentarDeNovo(): void {
+    this.definirOvertime(false);
+    this.scene.restart();
+  }
+
+  private concluir(): void {
+    this.concluida = true;
     this.definirOvertime(false);
     this.corpo.setVelocity(0, 0);
-    this.marco.setFillStyle(0x555555);
-    this.add.text(W / 2, H / 2, `${msg}\nR para tentar de novo`, {
-      fontFamily: 'Courier New', fontSize: '22px', color: '#ff2a6d', align: 'center',
-    }).setOrigin(0.5).setDepth(12);
-    this.desenharHud(false);
+
+    const resultado: ResultadoFase = {
+      fase: FASE,
+      nomeFase: NOME_FASE,
+      tempoMs: Math.round(performance.now() - this.registry.get(REG_INICIO)),
+      mortes: this.registry.get(REG_MORTES),
+    };
+    this.registry.remove(REG_INICIO);
+    this.registry.remove(REG_MORTES);
+
+    // Libera o teclado para o Angular (campo de nome do ranking)
+    this.input.keyboard!.disableGlobalCapture();
+    this.input.keyboard!.resetKeys();
+    this.game.events.emit(EVENTO_FASE_COMPLETA, resultado);
+  }
+
+  // ------------------------------------------------------------------ util
+
+  private inimigosVivos(): number {
+    return (this.inimigos.getChildren() as Inimigo[]).filter((i) => i.vivo).length;
+  }
+
+  private comoInimigo(a: unknown, b: unknown): Inimigo {
+    return (a instanceof Inimigo ? a : b) as Inimigo;
+  }
+
+  private comoBala(a: unknown, b: unknown): Ret {
+    return ((a as Ret).getData?.('bala') ? a : b) as Ret;
   }
 
   private definirOvertime(ativo: boolean): void {
     this.physics.world.timeScale = ativo ? FATOR_OVERTIME : 1;
     this.time.timeScale = ativo ? 1 / FATOR_OVERTIME : 1;
-    this.filtroOvertime.setFillStyle(0x6a00ff, ativo ? 0.18 : 0);
+    this.filtroOvertime?.setFillStyle(0x6a00ff, ativo ? 0.18 : 0);
   }
 
-  private desenharHud(overtime: boolean): void {
+  private desenharHud(overtime: boolean, restantes: number): void {
     const g = this.barraVida;
     g.clear();
     g.fillStyle(0x2a1b3d).fillRect(16, 14, 200, 12);
     g.fillStyle(overtime ? 0xb388ff : 0x3dff9a).fillRect(16, 14, 200 * (this.vida / VIDA_MAX), 12);
 
-    const restantes = this.inimigos.countActive();
+    const tempo = (performance.now() - (this.registry.get(REG_INICIO) ?? performance.now())) / 1000;
     const hab = this.escama.habilidades;
     this.hud.setText(
-      (restantes > 0 ? `Inimigos: ${restantes}` : 'LIXÃO LIMPO! R para reiniciar') +
+      `${tempo.toFixed(2)}s · Mortes: ${this.registry.get(REG_MORTES) ?? 0}\n` +
+      (restantes > 0 ? `Inimigos: ${restantes}` : 'Lixão limpo! Vá até a saída →') +
       `\nEspada nv${hab.espada.nivel}` +
       (hab.canhao.desbloqueada ? ` · Canhão nv${hab.canhao.nivel}` : '') +
       (hab.overtime.desbloqueada ? ` · Overtime nv${hab.overtime.nivel}` : ''),
