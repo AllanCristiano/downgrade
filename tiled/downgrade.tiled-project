@@ -1,0 +1,61 @@
+{
+    "automappingRulesFile": "",
+    "commands": [],
+    "compatibilityVersion": 1100,
+    "extensionsPath": "extensions",
+    "folders": [
+        "../downgrade-game/public/assets"
+    ],
+    "properties": [],
+    "propertyTypes": [
+        {
+            "id": 1,
+            "name": "marco",
+            "type": "class",
+            "color": "#ff00f0ff",
+            "drawFill": true,
+            "members": [],
+            "useAs": ["object"]
+        },
+        {
+            "id": 2,
+            "name": "catador",
+            "type": "class",
+            "color": "#ffff2a6d",
+            "drawFill": true,
+            "members": [
+                { "name": "patrulha", "type": "int", "value": 80 }
+            ],
+            "useAs": ["object"]
+        },
+        {
+            "id": 3,
+            "name": "pistoleiro",
+            "type": "class",
+            "color": "#ffff8c42",
+            "drawFill": true,
+            "members": [],
+            "useAs": ["object"]
+        },
+        {
+            "id": 4,
+            "name": "saida",
+            "type": "class",
+            "color": "#ff3dff9a",
+            "drawFill": true,
+            "members": [],
+            "useAs": ["object"]
+        },
+        {
+            "id": 5,
+            "name": "chefe",
+            "type": "class",
+            "color": "#ffffd166",
+            "drawFill": true,
+            "members": [
+                { "name": "quem", "type": "string", "value": "" }
+            ],
+            "useAs": ["object"]
+        }
+    ]
+}

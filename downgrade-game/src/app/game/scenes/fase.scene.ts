@@ -1,25 +1,22 @@
 import Phaser from 'phaser';
 import { Escama } from '../escama/escama';
 import { EVENTO_FASE_COMPLETA, ResultadoFase } from '../eventos';
+import { FASES, InfoFase, TILESETS, infoFase } from '../fases/fases';
 import { Inimigo, Mundo } from '../inimigos/inimigo';
 import { Catador } from '../inimigos/catador';
 import { Pistoleiro } from '../inimigos/pistoleiro';
 
 const TELA_W = 960;
 const TELA_H = 540;
-const MUNDO_W = 1920;
 const VELOCIDADE = 280;
 const PULO = 560;
 const FATOR_OVERTIME = 3;
 const VIDA_MAX = 100;
 const VEL_BALA = 520;
 
-const FASE = 1;
-const NOME_FASE = 'Fase 1 — O Lixão';
-
 // Chaves no registry do jogo: sobrevivem ao restart da cena (tempo e mortes da tentativa)
-const REG_INICIO = 'fase.inicio';
-const REG_MORTES = 'fase.mortes';
+export const REG_INICIO = 'fase.inicio';
+export const REG_MORTES = 'fase.mortes';
 
 /**
  * Em desenvolvimento: Espada nv 2 (rebate balas) e Canhao/Overtime liberados para teste.
@@ -31,17 +28,26 @@ type Teclas = Record<'W' | 'A' | 'D' | 'J' | 'Q' | 'R' | 'SPACE' | 'SHIFT', Phas
 type Ret = Phaser.GameObjects.Rectangle;
 type Arma = 'espada' | 'canhao';
 
-/** Fase 1 — O Lixão. Marco acabou de acordar a Escama e os Catadores do Rato vieram atrás. */
-export class LixaoScene extends Phaser.Scene implements Mundo {
+export interface DadosFase {
+  fase?: number;
+}
+
+/**
+ * Cena generica de fase: carrega o mapa do Tiled da fase pedida.
+ * Camadas do mapa:
+ *  - `solidos` (tiles): tudo que colide
+ *  - `spawns` (objetos): marco, catador, pistoleiro, saida
+ */
+export class FaseScene extends Phaser.Scene implements Mundo {
   marco!: Ret;
+  private info!: InfoFase;
   private escama!: Escama;
   private corpo!: Phaser.Physics.Arcade.Body;
   private corte!: Ret; // hitbox (invisivel)
   private corteCorpo!: Phaser.Physics.Arcade.Body;
   private lamina!: Ret; // visual do corte, rotacionado para o mouse
   private mira!: Phaser.GameObjects.Graphics;
-  private solidos!: Phaser.Physics.Arcade.StaticGroup;
-  private bordasSolidos: Phaser.Geom.Rectangle[] = [];
+  private solidos!: Phaser.Tilemaps.TilemapLayer;
   private inimigos!: Phaser.Physics.Arcade.Group;
   private balas!: Phaser.Physics.Arcade.Group;
   private tirosMarco!: Phaser.Physics.Arcade.Group;
@@ -61,7 +67,24 @@ export class LixaoScene extends Phaser.Scene implements Mundo {
   private concluida = false;
 
   constructor() {
-    super('lixao');
+    super('fase');
+  }
+
+  // ------------------------------------------------------------------ carregamento
+
+  init(dados: DadosFase): void {
+    this.info = infoFase(dados?.fase ?? FASES[0].numero);
+  }
+
+  preload(): void {
+    for (const [nome, url] of Object.entries(TILESETS)) {
+      if (!this.textures.exists(`tileset-${nome}`)) this.load.image(`tileset-${nome}`, url);
+    }
+    if (!this.cache.tilemap.exists(this.chaveMapa())) this.load.tilemapTiledJSON(this.chaveMapa(), this.info.mapa!);
+  }
+
+  private chaveMapa(): string {
+    return `mapa-fase-${this.info.numero}`;
   }
 
   // ------------------------------------------------------------------ setup
@@ -80,15 +103,12 @@ export class LixaoScene extends Phaser.Scene implements Mundo {
       this.registry.set(REG_MORTES, 0);
     }
 
-    this.physics.world.setBounds(0, 0, MUNDO_W, TELA_H);
-    this.cameras.main.setBounds(0, 0, MUNDO_W, TELA_H);
-
-    this.criarCenario();
-    this.criarMarco();
-    this.criarInimigos();
+    const mapa = this.criarMapa();
     this.criarArmas();
     this.criarHud();
 
+    this.physics.world.setBounds(0, 0, mapa.widthInPixels, mapa.heightInPixels);
+    this.cameras.main.setBounds(0, 0, mapa.widthInPixels, mapa.heightInPixels);
     this.cameras.main.startFollow(this.marco, true, 0.12, 0.12);
 
     this.input.keyboard!.enableGlobalCapture();
@@ -112,51 +132,67 @@ export class LixaoScene extends Phaser.Scene implements Mundo {
     }
   }
 
-  private criarCenario(): void {
-    // Montes de sucata do Aterro 9
-    const blocos: [number, number, number, number][] = [
-      [MUNDO_W / 2, TELA_H - 20, MUNDO_W, 40], // chao
-      [300, 380, 200, 16],
-      [640, 300, 180, 16],
-      [900, 400, 160, 16],
-      [1150, 455, 60, 90], // pilha de sucata (pular por cima)
-      [1400, 360, 200, 16],
-      [1700, 280, 160, 16],
-    ];
-    this.solidos = this.physics.add.staticGroup();
-    this.bordasSolidos = [];
-    for (const [x, y, w, h] of blocos) {
-      const r = this.add.rectangle(x, y, w, h, h > 20 ? 0x2a1b3d : 0x3d2a5c);
-      this.solidos.add(r);
-      this.bordasSolidos.push(r.getBounds());
+  /** Monta a fase a partir do mapa do Tiled. */
+  private criarMapa(): Phaser.Tilemaps.Tilemap {
+    const mapa = this.make.tilemap({ key: this.chaveMapa() });
+
+    const tilesets = mapa.tilesets.map((ts) => {
+      if (!TILESETS[ts.name]) throw new Error(`Tileset "${ts.name}" não está registrado em fases.ts (TILESETS).`);
+      return mapa.addTilesetImage(ts.name, `tileset-${ts.name}`)!;
+    });
+
+    this.solidos = mapa.createLayer('solidos', tilesets)!;
+    this.solidos.setCollisionByExclusion([-1]);
+
+    const fundo = (mapa as unknown as { backgroundColor?: string }).backgroundColor;
+    if (fundo) this.cameras.main.setBackgroundColor(fundo);
+
+    this.inimigos = this.physics.add.group({ collideWorldBounds: true });
+
+    for (const o of mapa.getObjectLayer('spawns')?.objects ?? []) {
+      const tipo = String(o.type || (o as { class?: string }).class || '').toLowerCase();
+      const w = o.width ?? 0;
+      const h = o.height ?? 0;
+      const cx = (o.x ?? 0) + w / 2;
+      const base = (o.y ?? 0) + h; // os pes ficam na base do objeto
+      const props: Record<string, unknown> = Object.fromEntries(
+        ((o.properties ?? []) as { name: string; value: unknown }[]).map((p) => [p.name, p.value]),
+      );
+
+      switch (tipo) {
+        case 'marco':
+          this.criarMarco(cx, base - 20);
+          break;
+        case 'catador':
+          this.inimigos.add(new Catador(this, cx, base - 20, Number(props['patrulha'] ?? 80)));
+          break;
+        case 'pistoleiro':
+          this.inimigos.add(new Pistoleiro(this, cx, base - 20));
+          break;
+        case 'saida': {
+          const sw = w || 32;
+          const sh = h || 80;
+          this.saida = this.add.rectangle(cx, base - sh / 2, sw, sh, 0x1b3d2a).setStrokeStyle(2, 0x3dff9a, 0.3);
+          break;
+        }
+        default:
+          console.warn(`[fase ${this.info.numero}] spawn desconhecido: "${tipo}"`);
+      }
     }
 
-    // Saida: so abre com o lixao limpo
-    this.saida = this.add.rectangle(MUNDO_W - 30, TELA_H - 80, 30, 80, 0x1b3d2a).setStrokeStyle(2, 0x3dff9a, 0.3);
+    if (!this.marco) throw new Error(`Fase ${this.info.numero}: mapa sem spawn "marco".`);
+    if (!this.saida) throw new Error(`Fase ${this.info.numero}: mapa sem "saida".`);
+
+    this.physics.add.collider(this.marco, this.solidos);
+    this.physics.add.collider(this.inimigos, this.solidos);
+    return mapa;
   }
 
-  private criarMarco(): void {
-    this.marco = this.add.rectangle(60, TELA_H - 60, 22, 40, 0x00f0ff).setDepth(2);
+  private criarMarco(x: number, y: number): void {
+    this.marco = this.add.rectangle(x, y, 22, 40, 0x00f0ff).setDepth(2);
     this.physics.add.existing(this.marco);
     this.corpo = this.marco.body as Phaser.Physics.Arcade.Body;
     this.corpo.setCollideWorldBounds(true);
-    this.physics.add.collider(this.marco, this.solidos);
-  }
-
-  private criarInimigos(): void {
-    this.inimigos = this.physics.add.group({ collideWorldBounds: true });
-    const chao = TELA_H - 60;
-    const lista: Inimigo[] = [
-      new Catador(this, 520, chao, 80),
-      new Pistoleiro(this, 300, 352),
-      new Catador(this, 900, 372, 50),
-      new Catador(this, 1300, chao, 100),
-      new Pistoleiro(this, 1400, 332),
-      new Catador(this, 1620, chao, 80),
-      new Pistoleiro(this, 1700, 252),
-    ];
-    for (const i of lista) this.inimigos.add(i);
-    this.physics.add.collider(this.inimigos, this.solidos);
   }
 
   private criarArmas(): void {
@@ -190,8 +226,7 @@ export class LixaoScene extends Phaser.Scene implements Mundo {
     this.physics.add.overlap(this.balas, this.inimigos, (a, b) => {
       const bala = this.comoBala(a, b);
       if (!bala.getData('rebatida')) return;
-      const inimigo = this.comoInimigo(a, b);
-      this.acertar(inimigo, Math.sign(bala.body!.velocity.x) || 1);
+      this.acertar(this.comoInimigo(a, b), Math.sign(bala.body!.velocity.x) || 1);
       bala.destroy();
     });
 
@@ -270,7 +305,7 @@ export class LixaoScene extends Phaser.Scene implements Mundo {
 
   temVisao(de: Ret, para: Ret): boolean {
     const linha = new Phaser.Geom.Line(de.x, de.y - 10, para.x, para.y - 10);
-    return !this.bordasSolidos.some((r) => Phaser.Geom.Intersects.LineToRectangle(linha, r));
+    return this.solidos.getTilesWithinShape(linha, { isColliding: true }).length === 0;
   }
 
   dispararBala(x: number, y: number, angulo: number): void {
@@ -362,35 +397,23 @@ export class LixaoScene extends Phaser.Scene implements Mundo {
     this.cameras.main.shake(60, 0.004);
   }
 
-  /** Angulo de Marco ate o mouse, em coordenadas do mundo (a camera se move). */
-  private anguloMira(): number {
-    const p = this.input.activePointer.positionToCamera(this.cameras.main) as Phaser.Math.Vector2;
-    return Phaser.Math.Angle.Between(this.marco.x, this.marco.y, p.x, p.y);
-  }
-
-  private desenharMira(): void {
-    const p = this.input.activePointer.positionToCamera(this.cameras.main) as Phaser.Math.Vector2;
-    const cor = this.arma === 'canhao' ? 0xffd166 : 0xffffff;
-    this.mira.clear();
-    this.mira.lineStyle(2, cor, 0.9);
-    this.mira.strokeCircle(p.x, p.y, 7);
-    this.mira.lineBetween(p.x - 12, p.y, p.x - 4, p.y);
-    this.mira.lineBetween(p.x + 4, p.y, p.x + 12, p.y);
-    this.mira.lineBetween(p.x, p.y - 12, p.x, p.y - 4);
-    this.mira.lineBetween(p.x, p.y + 4, p.x, p.y + 12);
-  }
-
   private acertar(inimigo: Inimigo, direcao: number): void {
     if (!inimigo.vivo) return;
     inimigo.morrer(direcao);
     this.cameras.main.shake(80, 0.006);
   }
 
+  /** Angulo de Marco ate o mouse, em coordenadas do mundo (a camera se move). */
+  private anguloMira(): number {
+    const p = this.input.activePointer.positionToCamera(this.cameras.main) as Phaser.Math.Vector2;
+    return Phaser.Math.Angle.Between(this.marco.x, this.marco.y, p.x, p.y);
+  }
+
   // ------------------------------------------------------------------ fluxo da fase
 
   private tentarDeNovo(): void {
     this.definirOvertime(false);
-    this.scene.restart();
+    this.scene.restart({ fase: this.info.numero } satisfies DadosFase);
   }
 
   private concluir(): void {
@@ -399,15 +422,16 @@ export class LixaoScene extends Phaser.Scene implements Mundo {
     this.corpo.setVelocity(0, 0);
 
     const resultado: ResultadoFase = {
-      fase: FASE,
-      nomeFase: NOME_FASE,
+      fase: this.info.numero,
+      nomeFase: `Fase ${this.info.numero} — ${this.info.nome}`,
       tempoMs: Math.round(performance.now() - this.registry.get(REG_INICIO)),
       mortes: this.registry.get(REG_MORTES),
     };
     this.registry.remove(REG_INICIO);
     this.registry.remove(REG_MORTES);
 
-    // Libera o teclado para o Angular (campo de nome do ranking)
+    // Libera o teclado e o cursor para o Angular (campo de nome do ranking)
+    this.input.setDefaultCursor('default');
     this.input.keyboard!.disableGlobalCapture();
     this.input.keyboard!.resetKeys();
     this.game.events.emit(EVENTO_FASE_COMPLETA, resultado);
@@ -433,6 +457,18 @@ export class LixaoScene extends Phaser.Scene implements Mundo {
     this.filtroOvertime?.setFillStyle(0x6a00ff, ativo ? 0.18 : 0);
   }
 
+  private desenharMira(): void {
+    const p = this.input.activePointer.positionToCamera(this.cameras.main) as Phaser.Math.Vector2;
+    const cor = this.arma === 'canhao' ? 0xffd166 : 0xffffff;
+    this.mira.clear();
+    this.mira.lineStyle(2, cor, 0.9);
+    this.mira.strokeCircle(p.x, p.y, 7);
+    this.mira.lineBetween(p.x - 12, p.y, p.x - 4, p.y);
+    this.mira.lineBetween(p.x + 4, p.y, p.x + 12, p.y);
+    this.mira.lineBetween(p.x, p.y - 12, p.x, p.y - 4);
+    this.mira.lineBetween(p.x, p.y + 4, p.x, p.y + 12);
+  }
+
   private desenharHud(overtime: boolean, restantes: number): void {
     const g = this.barraVida;
     g.clear();
@@ -442,8 +478,9 @@ export class LixaoScene extends Phaser.Scene implements Mundo {
     const tempo = (performance.now() - (this.registry.get(REG_INICIO) ?? performance.now())) / 1000;
     const hab = this.escama.habilidades;
     this.hud.setText(
+      `FASE ${this.info.numero} — ${this.info.nome.toUpperCase()}\n` +
       `${tempo.toFixed(2)}s · Mortes: ${this.registry.get(REG_MORTES) ?? 0}\n` +
-      (restantes > 0 ? `Inimigos: ${restantes}` : 'Lixão limpo! Vá até a saída →') +
+      (restantes > 0 ? `Inimigos: ${restantes}` : 'Área limpa! Vá até a saída →') +
       `\n${this.arma === 'espada' ? '▶ ESPADA' : '  Espada'} nv${hab.espada.nivel}` +
       (hab.canhao.desbloqueada ? `   ${this.arma === 'canhao' ? '▶ CANHÃO' : '  Canhão'} nv${hab.canhao.nivel}   (Q troca)` : '') +
       (hab.overtime.desbloqueada ? `\nOvertime nv${hab.overtime.nivel} (Shift)` : ''),

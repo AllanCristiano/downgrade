@@ -5,6 +5,8 @@ services:
   nginx:
     build:
       context: ./downgrade-game
+      additional_contexts:
+        tools: ./downgrade-tools   # validador de fases roda no build
     container_name: downgrade-nginx
     ports:
       - "${APP_PORT:-80}:80"

@@ -2,6 +2,7 @@ import { Component, OnInit, inject, signal, viewChild } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { GameComponent } from './game/game.component';
 import { ResultadoFase } from './game/eventos';
+import { FASES } from './game/fases/fases';
 import { RankingService, Score } from './ranking.service';
 
 type Status = 'verificando' | 'online' | 'offline';
@@ -30,6 +31,16 @@ function lerNome(): string {
     </header>
 
     <main>
+      <nav class="fases" aria-label="Fases">
+        @for (f of fases; track f.numero) {
+          <button type="button" [class.atual]="f.numero === faseAtual()" [disabled]="!f.mapa"
+                  [title]="'Ato ' + f.ato + ' — ' + f.nome + (f.mapa ? '' : ' (sem mapa ainda)')"
+                  (click)="escolherFase(f.numero, $event)">
+            {{ f.numero }}<span>{{ f.nome }}</span>
+          </button>
+        }
+      </nav>
+
       <div class="palco">
         <app-game (faseCompleta)="aoCompletar($event)" />
 
@@ -78,6 +89,13 @@ function lerNome(): string {
     .online { color: #3dff9a; } .offline { color: #ff2a6d; } .verificando { color: #ffd166; }
     main { display: flex; flex-direction: column; align-items: center; padding: 0 16px; }
     .palco { position: relative; width: 100%; max-width: 960px; }
+    .fases { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; max-width: 960px; margin-bottom: 10px; }
+    .fases button { flex: 1 1 0; min-width: 64px; background: #0d0221; color: #e8e6ff; border: 1px solid #3d2a5c; padding: 6px 8px;
+                    font-size: 15px; text-align: left; }
+    .fases button span { display: block; font-size: 10px; font-weight: normal; opacity: .7; white-space: nowrap;
+                         overflow: hidden; text-overflow: ellipsis; }
+    .fases button.atual { border-color: #00f0ff; color: #00f0ff; box-shadow: 0 0 10px #00f0ff55; }
+    .fases button:disabled { opacity: .3; }
     .help { opacity: .7; font-size: 13px; text-align: center; }
 
     .overlay { position: absolute; inset: 0; display: grid; place-items: center; background: #07010fcc; overflow: auto; padding: 12px; }
@@ -104,6 +122,9 @@ export class AppComponent implements OnInit {
   private http = inject(HttpClient);
   private rankingService = inject(RankingService);
   private jogo = viewChild.required(GameComponent);
+
+  readonly fases = FASES;
+  faseAtual = signal(1);
 
   api = signal<Status>('verificando');
   tools = signal<Status>('verificando');
@@ -153,7 +174,15 @@ export class AppComponent implements OnInit {
 
   jogarDeNovo(): void {
     this.resultado.set(null);
-    this.jogo().jogarDeNovo();
+    this.jogo().jogarFase(this.faseAtual());
+  }
+
+  escolherFase(numero: number, evento: Event): void {
+    // Tira o foco do botao para Espaco (pulo) nao "clicar" nele de novo
+    (evento.currentTarget as HTMLElement).blur();
+    this.faseAtual.set(numero);
+    this.resultado.set(null);
+    this.jogo().jogarFase(numero);
   }
 
   formatar(ms: number): string {

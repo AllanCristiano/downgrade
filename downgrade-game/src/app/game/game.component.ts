@@ -1,7 +1,7 @@
 import { AfterViewInit, Component, ElementRef, NgZone, OnDestroy, ViewChild, inject, output } from '@angular/core';
 import Phaser from 'phaser';
 import { EVENTO_FASE_COMPLETA, ResultadoFase } from './eventos';
-import { LixaoScene } from './scenes/lixao.scene';
+import { DadosFase, FaseScene, REG_INICIO, REG_MORTES } from './scenes/fase.scene';
 
 @Component({
   selector: 'app-game',
@@ -31,15 +31,18 @@ export class GameComponent implements AfterViewInit, OnDestroy {
         pixelArt: true,
         physics: { default: 'arcade', arcade: { gravity: { x: 0, y: 1400 } } },
         scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
-        scene: [LixaoScene],
+        scene: [FaseScene],
       });
       this.game.events.on(EVENTO_FASE_COMPLETA, (r: ResultadoFase) => this.zone.run(() => this.faseCompleta.emit(r)));
     });
   }
 
-  /** Recomeca a fase do zero (tempo e mortes zerados). */
-  jogarDeNovo(): void {
-    this.game?.scene.getScene('lixao')?.scene.restart();
+  /** Comeca a fase do zero (tempo e mortes zerados). */
+  jogarFase(fase: number): void {
+    if (!this.game) return;
+    this.game.registry.remove(REG_INICIO);
+    this.game.registry.remove(REG_MORTES);
+    this.game.scene.getScene('fase')?.scene.restart({ fase } satisfies DadosFase);
   }
 
   ngOnDestroy(): void {
