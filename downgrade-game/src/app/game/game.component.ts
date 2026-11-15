@@ -1,7 +1,10 @@
 import { AfterViewInit, Component, ElementRef, NgZone, OnDestroy, ViewChild, inject, output } from '@angular/core';
 import Phaser from 'phaser';
+import { TELA_H, TELA_W } from './estado';
 import { EVENTO_FASE_COMPLETA, ResultadoFase } from './eventos';
 import { DadosFase, FaseScene, REG_INICIO, REG_MORTES } from './scenes/fase.scene';
+import { FundoScene } from './scenes/fundo.scene';
+import { HudScene } from './scenes/hud.scene';
 
 @Component({
   selector: 'app-game',
@@ -9,7 +12,7 @@ import { DadosFase, FaseScene, REG_INICIO, REG_MORTES } from './scenes/fase.scen
   template: `<div #host class="game-host"></div>`,
   styles: [`
     :host { display: block; width: 100%; }
-    .game-host { width: 100%; aspect-ratio: 16 / 9; border: 1px solid #2a1b3d; box-shadow: 0 0 24px #ff2a6d33; }
+    .game-host { width: 100%; aspect-ratio: 16 / 9; border: 1px solid #2a1b3d; box-shadow: 0 0 24px #ff2a6d33; background: #07010f; }
   `],
 })
 export class GameComponent implements AfterViewInit, OnDestroy {
@@ -25,13 +28,15 @@ export class GameComponent implements AfterViewInit, OnDestroy {
       this.game = new Phaser.Game({
         type: Phaser.AUTO,
         parent: this.host.nativeElement,
-        width: 960,
-        height: 540,
-        backgroundColor: '#0d0221',
+        width: TELA_W,
+        height: TELA_H,
+        backgroundColor: '#07010f',
         pixelArt: true,
+        roundPixels: true,
         physics: { default: 'arcade', arcade: { gravity: { x: 0, y: 1400 } } },
         scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
-        scene: [FaseScene],
+        // so a fase inicia sozinha; ela lanca o fundo (atras) e o HUD (na frente)
+        scene: [FaseScene, FundoScene, HudScene],
       });
       this.game.events.on(EVENTO_FASE_COMPLETA, (r: ResultadoFase) => this.zone.run(() => this.faseCompleta.emit(r)));
     });

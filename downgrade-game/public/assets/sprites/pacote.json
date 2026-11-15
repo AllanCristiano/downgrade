@@ -1,0 +1,180 @@
+{
+ "downgrade": {
+  "files": [
+   {
+    "type": "spritesheet",
+    "key": "marco",
+    "url": "assets/sprites/marco.png",
+    "frameConfig": {
+     "frameWidth": 64,
+     "frameHeight": 64
+    }
+   },
+   {
+    "type": "spritesheet",
+    "key": "catador",
+    "url": "assets/sprites/catador.png",
+    "frameConfig": {
+     "frameWidth": 64,
+     "frameHeight": 64
+    }
+   },
+   {
+    "type": "spritesheet",
+    "key": "pistoleiro",
+    "url": "assets/sprites/pistoleiro.png",
+    "frameConfig": {
+     "frameWidth": 64,
+     "frameHeight": 64
+    }
+   },
+   {
+    "type": "spritesheet",
+    "key": "barril_fogo",
+    "url": "assets/sprites/barril_fogo.png",
+    "frameConfig": {
+     "frameWidth": 32,
+     "frameHeight": 48
+    }
+   },
+   {
+    "type": "spritesheet",
+    "key": "neon",
+    "url": "assets/sprites/neon.png",
+    "frameConfig": {
+     "frameWidth": 96,
+     "frameHeight": 44
+    }
+   },
+   {
+    "type": "spritesheet",
+    "key": "tv",
+    "url": "assets/sprites/tv.png",
+    "frameConfig": {
+     "frameWidth": 32,
+     "frameHeight": 32
+    }
+   },
+   {
+    "type": "spritesheet",
+    "key": "poste",
+    "url": "assets/sprites/poste.png",
+    "frameConfig": {
+     "frameWidth": 32,
+     "frameHeight": 96
+    }
+   },
+   {
+    "type": "spritesheet",
+    "key": "barril_toxico",
+    "url": "assets/sprites/barril_toxico.png",
+    "frameConfig": {
+     "frameWidth": 32,
+     "frameHeight": 32
+    }
+   },
+   {
+    "type": "spritesheet",
+    "key": "saida",
+    "url": "assets/sprites/saida.png",
+    "frameConfig": {
+     "frameWidth": 48,
+     "frameHeight": 96
+    }
+   },
+   {
+    "type": "image",
+    "key": "luz",
+    "url": "assets/sprites/luz.png"
+   },
+   {
+    "type": "image",
+    "key": "cone",
+    "url": "assets/sprites/cone.png"
+   },
+   {
+    "type": "spritesheet",
+    "key": "corte",
+    "url": "assets/sprites/corte.png",
+    "frameConfig": {
+     "frameWidth": 96,
+     "frameHeight": 96
+    }
+   },
+   {
+    "type": "spritesheet",
+    "key": "faisca",
+    "url": "assets/sprites/faisca.png",
+    "frameConfig": {
+     "frameWidth": 32,
+     "frameHeight": 32
+    }
+   },
+   {
+    "type": "spritesheet",
+    "key": "sangue",
+    "url": "assets/sprites/sangue.png",
+    "frameConfig": {
+     "frameWidth": 48,
+     "frameHeight": 48
+    }
+   },
+   {
+    "type": "spritesheet",
+    "key": "clarao",
+    "url": "assets/sprites/clarao.png",
+    "frameConfig": {
+     "frameWidth": 24,
+     "frameHeight": 24
+    }
+   },
+   {
+    "type": "spritesheet",
+    "key": "poeira",
+    "url": "assets/sprites/poeira.png",
+    "frameConfig": {
+     "frameWidth": 32,
+     "frameHeight": 16
+    }
+   },
+   {
+    "type": "spritesheet",
+    "key": "tiro_canhao",
+    "url": "assets/sprites/tiro_canhao.png",
+    "frameConfig": {
+     "frameWidth": 24,
+     "frameHeight": 12
+    }
+   },
+   {
+    "type": "spritesheet",
+    "key": "impacto_canhao",
+    "url": "assets/sprites/impacto_canhao.png",
+    "frameConfig": {
+     "frameWidth": 32,
+     "frameHeight": 32
+    }
+   },
+   {
+    "type": "image",
+    "key": "bala",
+    "url": "assets/sprites/bala.png"
+   },
+   {
+    "type": "image",
+    "key": "bala_rebatida",
+    "url": "assets/sprites/bala_rebatida.png"
+   },
+   {
+    "type": "image",
+    "key": "fragmento",
+    "url": "assets/sprites/fragmento.png"
+   },
+   {
+    "type": "animation",
+    "key": "animacoes",
+    "url": "assets/sprites/animacoes.json"
+   }
+  ]
+ }
+}

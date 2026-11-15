@@ -18,10 +18,13 @@ export interface InfoFase {
   fundos?: Fundo[];
 }
 
+// gerados por downgrade-tools/arte/cenario.py (FUNDOS)
 const FUNDOS_LIXAO: Fundo[] = [
   { url: 'assets/fundos/lixao-ceu.png', fator: 0 },
-  { url: 'assets/fundos/lixao-cidade.png', fator: 0.15 },
-  { url: 'assets/fundos/lixao-montes.png', fator: 0.4 },
+  { url: 'assets/fundos/lixao-cidade-longe.png', fator: 0.06 },
+  { url: 'assets/fundos/lixao-cidade-perto.png', fator: 0.16 },
+  { url: 'assets/fundos/lixao-lixo-longe.png', fator: 0.32 },
+  { url: 'assets/fundos/lixao-lixo-perto.png', fator: 0.55 },
 ];
 
 export const FASES: InfoFase[] = [

@@ -14,14 +14,16 @@ Para criar do zero (**File > New > New Map**):
 - Orientation **Orthogonal**, Tile layer format **CSV**, Tile size **32 x 32**
 - **Desmarque "Infinite"**
 - Altura de **17 tiles** (a tela tem 540px). A largura é livre: 60 tiles = 2 telas.
-- Adicione o tileset `downgrade-game/public/assets/tiles/blocos.png` com o nome **blocos**,
-  tiles 32x32, e marque **Embed in map**.
+- Adicione o tileset `downgrade-game/public/assets/tiles/lixao.png` com o nome **lixao**
+  (ou `blocos.png` / **blocos** para rascunho), tiles 32x32, e marque **Embed in map**.
 
 ## 3. Camadas obrigatórias
 | Camada | Tipo | O que vai nela |
 |---|---|---|
 | `solidos` | Tile Layer | Chão, paredes, plataformas. **Todo tile aqui colide** e bloqueia a visão dos inimigos. |
 | `spawns` | Object Layer | Retângulos com a classe certa (campo *Class*). |
+| `decoracao` | Tile Layer (opcional) | Carcaças, geladeiras, cercas, sacos… **Não colide.** Fica atrás dos personagens. |
+| `animados` | Object Layer (opcional) | Objetos animados que **emitem luz**: `neon`, `barril_fogo`, `poste`, `tv`, `barril_toxico`. A base do retângulo fica no chão. |
 
 ## 4. Objetos (camada `spawns`)
 Desenhe um **retângulo** e escolha a *Class*. **A base do retângulo é onde os pés ficam.**
@@ -50,3 +52,11 @@ Nas propriedades do mapa (**Map > Map Properties**), adicione `nome` (string) co
 - Toda ameaça precisa ser vista antes de matar: coloque Pistoleiros onde o jogador consiga ver o laser.
 - Use blocos em `solidos` para quebrar a linha de visão e criar rotas de aproximação.
 - Cada fase introduz **uma** ideia nova; teste-a sozinha antes de combinar.
+
+## Arte
+Toda a arte é gerada por código em `downgrade-tools/arte/` (tiles, fundos, personagens, efeitos):
+```
+cd downgrade-tools/arte
+python gerar_fase1.py ../../downgrade-game/public/assets
+```
+Isso também gera `sprites/pacote.json` e `sprites/animacoes.json`, que o jogo carrega sozinho.

@@ -1,11 +1,12 @@
 import Phaser from 'phaser';
-import { QUADRO } from '../sprites';
 import { Inimigo, Mundo } from './inimigo';
 
-const VISAO = 480;
-const ALTURA_VISAO = 160;
+const VISAO = 300;
+const ALTURA_VISAO = 140;
 const MIRA_MS = 650; // laser de mira visivel antes do tiro
 const RECARGA_MS = 1100;
+/** Posicao do cano da arma em relacao ao centro do sprite (olhando para a direita). */
+const CANO = { x: 22, y: -6 };
 
 type Estado = 'vigiando' | 'mirando' | 'recarga';
 
@@ -16,8 +17,12 @@ export class Pistoleiro extends Inimigo {
 
   constructor(scene: Phaser.Scene, x: number, y: number) {
     super(scene, x, y, 'pistoleiro');
-    this.laser = scene.add.graphics().setDepth(5);
-    this.play('pistoleiro-parado');
+    this.laser = scene.add.graphics().setDepth(5).setBlendMode(Phaser.BlendModes.ADD);
+    this.animar('parado');
+  }
+
+  private cano(): { x: number; y: number } {
+    return { x: this.x + this.direcao * CANO.x, y: this.y + CANO.y };
   }
 
   pensar(mundo: Mundo): void {
@@ -31,9 +36,11 @@ export class Pistoleiro extends Inimigo {
     if (this.estado === 'mirando') {
       this.direcao = Math.sign(mundo.marco.x - this.x) || this.direcao;
       this.olhar();
+      const c = this.cano();
       this.laser.clear();
-      this.laser.lineStyle(1, 0xff2a6d, 0.85);
-      this.laser.lineBetween(this.x + this.direcao * 14, this.y - 4, mundo.marco.x, mundo.marco.y);
+      this.laser.lineStyle(1, 0xff2a6d, 0.9);
+      this.laser.lineBetween(c.x, c.y, mundo.marco.x, mundo.marco.y);
+      this.laser.fillStyle(0xff2a6d, 0.8).fillCircle(mundo.marco.x, mundo.marco.y, 1.5);
     }
   }
 
@@ -49,23 +56,20 @@ export class Pistoleiro extends Inimigo {
 
   private mirar(mundo: Mundo): void {
     this.estado = 'mirando';
-    this.stop();
-    this.setFrame(QUADRO.pistoleiro.mirando);
+    this.animar('mirar');
 
     this.depois(MIRA_MS, () => {
       this.laser.clear();
       if (mundo.marcoVivo() && mundo.temVisao(this, mundo.marco)) {
-        const ox = this.x + this.direcao * 14;
-        const oy = this.y - 4;
-        const angulo = Phaser.Math.Angle.Between(ox, oy, mundo.marco.x, mundo.marco.y);
-        mundo.dispararBala(ox + Math.cos(angulo) * 6, oy + Math.sin(angulo) * 6, angulo);
-        this.setFrame(QUADRO.pistoleiro.tiro);
-        this.depois(90, () => this.setFrame(QUADRO.pistoleiro.mirando));
+        const c = this.cano();
+        const angulo = Phaser.Math.Angle.Between(c.x, c.y, mundo.marco.x, mundo.marco.y);
+        mundo.dispararBala(c.x, c.y, angulo);
+        this.animar('atirar');
       }
       this.estado = 'recarga';
       this.depois(RECARGA_MS, () => {
         this.estado = 'vigiando';
-        this.play('pistoleiro-parado');
+        this.animar('parado');
       });
     });
   }

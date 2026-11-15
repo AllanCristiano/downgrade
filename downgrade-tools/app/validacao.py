@@ -12,6 +12,8 @@ TAMANHO_TILE = 32
 CAMADA_SOLIDOS = "solidos"
 CAMADA_SPAWNS = "spawns"
 CAMADA_DECORACAO = "decoracao"  # opcional, sem colisao
+CAMADA_ANIMADOS = "animados"    # opcional: objetos animados com luz
+ANIMADOS_CONHECIDOS = {"neon", "barril_fogo", "poste", "tv", "barril_toxico"}
 
 # Tilesets registrados no jogo (downgrade-game/src/app/game/fases/fases.ts -> TILESETS)
 TILESETS_CONHECIDOS = {"blocos", "lixao"}
@@ -78,6 +80,15 @@ def validar_mapa(mapa: dict[str, Any], pasta_mapa: Path | None = None) -> dict[s
             erros.append(f"'{CAMADA_DECORACAO}' precisa ser uma camada de tiles.")
         elif deco.get("encoding") or deco.get("compression"):
             erros.append(f"Camada '{CAMADA_DECORACAO}': use o formato de camada 'CSV'.")
+
+    animados = por_nome.get(CAMADA_ANIMADOS)
+    if animados is not None:
+        if animados.get("type") != "objectgroup":
+            erros.append(f"'{CAMADA_ANIMADOS}' precisa ser uma camada de objetos.")
+        else:
+            for o in animados.get("objects", []):
+                if _tipo(o) not in ANIMADOS_CONHECIDOS:
+                    erros.append(f"animado #{o.get('id')} ('{_tipo(o)}'): classe desconhecida. Use: {', '.join(sorted(ANIMADOS_CONHECIDOS))}.")
 
     if not spawns or spawns.get("type") != "objectgroup":
         erros.append(f"Falta a camada de objetos '{CAMADA_SPAWNS}'.")

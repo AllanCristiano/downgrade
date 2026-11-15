@@ -20,9 +20,10 @@ export abstract class Inimigo extends Phaser.GameObjects.Sprite {
   vivo = true;
   direcao = -1;
 
-  constructor(scene: Phaser.Scene, x: number, y: number, textura: string) {
-    super(scene, x, y, textura, 0);
+  constructor(scene: Phaser.Scene, x: number, y: number, readonly folha: string) {
+    super(scene, x, y, folha, 0);
     scene.add.existing(this);
+    this.setDepth(2);
   }
 
   get corpo(): Phaser.Physics.Arcade.Body {
@@ -37,23 +38,22 @@ export abstract class Inimigo extends Phaser.GameObjects.Sprite {
   /** Chamado a cada frame pela cena. */
   abstract pensar(mundo: Mundo): void;
 
-  /** Morre com 1 golpe. O corpo voa na direcao do golpe. */
+  /** Morre com 1 golpe: animacao de queda e o corpo fica no chao. */
   morrer(direcaoGolpe: number): void {
     if (!this.vivo) return;
     this.vivo = false;
-    this.corpo.enable = false;
-    this.stop();
-    this.setTint(0x8a7a9a);
-    this.scene.tweens.add({
-      targets: this,
-      x: this.x + direcaoGolpe * 50,
-      y: this.y + 14,
-      angle: 90 * direcaoGolpe,
-      alpha: 0.2,
-      duration: 420,
-      ease: 'Cubic.easeOut',
-      onComplete: () => this.destroy(),
-    });
+    this.clearTint();
+    // cai para longe do golpe: vira o rosto para o atacante
+    this.direcao = -direcaoGolpe;
+    this.olhar();
+    this.play(`${this.folha}-morte`);
+    this.corpo.setVelocity(direcaoGolpe * 170, -150);
+    this.corpo.setDragX(420);
+    this.setDepth(1);
+  }
+
+  protected animar(nome: string): void {
+    this.play(`${this.folha}-${nome}`, true);
   }
 
   protected olhar(): void {
@@ -73,7 +73,7 @@ export abstract class Inimigo extends Phaser.GameObjects.Sprite {
     return Math.abs(dx) <= alcance && Math.abs(dy) <= alturaMax && mundo.temVisao(this, mundo.marco);
   }
 
-  /** Espera em tempo de jogo (respeita a camera lenta do Overtime). */
+  /** Espera em tempo de jogo (respeita a camera lenta do Overtime e o hit-stop). */
   protected depois(ms: number, acao: () => void): void {
     this.scene.time.delayedCall(ms, () => {
       if (this.vivo && this.active) acao();

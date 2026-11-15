@@ -15,7 +15,9 @@
             "color": "#ff00f0ff",
             "drawFill": true,
             "members": [],
-            "useAs": ["object"]
+            "useAs": [
+                "object"
+            ]
         },
         {
             "id": 2,
@@ -24,9 +26,15 @@
             "color": "#ffff2a6d",
             "drawFill": true,
             "members": [
-                { "name": "patrulha", "type": "int", "value": 80 }
+                {
+                    "name": "patrulha",
+                    "type": "int",
+                    "value": 80
+                }
             ],
-            "useAs": ["object"]
+            "useAs": [
+                "object"
+            ]
         },
         {
             "id": 3,
@@ -35,7 +43,9 @@
             "color": "#ffff8c42",
             "drawFill": true,
             "members": [],
-            "useAs": ["object"]
+            "useAs": [
+                "object"
+            ]
         },
         {
             "id": 4,
@@ -44,7 +54,9 @@
             "color": "#ff3dff9a",
             "drawFill": true,
             "members": [],
-            "useAs": ["object"]
+            "useAs": [
+                "object"
+            ]
         },
         {
             "id": 5,
@@ -53,9 +65,70 @@
             "color": "#ffffd166",
             "drawFill": true,
             "members": [
-                { "name": "quem", "type": "string", "value": "" }
+                {
+                    "name": "quem",
+                    "type": "string",
+                    "value": ""
+                }
             ],
-            "useAs": ["object"]
+            "useAs": [
+                "object"
+            ]
+        },
+        {
+            "id": 6,
+            "name": "neon",
+            "type": "class",
+            "color": "#ffff2a6d",
+            "drawFill": true,
+            "members": [],
+            "useAs": [
+                "object"
+            ]
+        },
+        {
+            "id": 7,
+            "name": "barril_fogo",
+            "type": "class",
+            "color": "#ffff7a28",
+            "drawFill": true,
+            "members": [],
+            "useAs": [
+                "object"
+            ]
+        },
+        {
+            "id": 8,
+            "name": "poste",
+            "type": "class",
+            "color": "#ffffd27a",
+            "drawFill": true,
+            "members": [],
+            "useAs": [
+                "object"
+            ]
+        },
+        {
+            "id": 9,
+            "name": "tv",
+            "type": "class",
+            "color": "#ff00f0ff",
+            "drawFill": true,
+            "members": [],
+            "useAs": [
+                "object"
+            ]
+        },
+        {
+            "id": 10,
+            "name": "barril_toxico",
+            "type": "class",
+            "color": "#ff3dff9a",
+            "drawFill": true,
+            "members": [],
+            "useAs": [
+                "object"
+            ]
         }
     ]
 }
