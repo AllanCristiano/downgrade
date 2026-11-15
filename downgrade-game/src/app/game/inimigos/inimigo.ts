@@ -52,6 +52,14 @@ export abstract class Inimigo extends Phaser.GameObjects.Sprite {
     this.setDepth(1);
   }
 
+  /** Acelera/freia ate a velocidade alvo (inimigos tambem tem peso). */
+  protected acelerar(alvo: number, taxa: number): void {
+    const dt = this.scene.game.loop.delta / 1000 / this.scene.physics.world.timeScale;
+    const v = this.corpo.velocity.x;
+    const passo = taxa * dt;
+    this.corpo.setVelocityX(v < alvo ? Math.min(alvo, v + passo) : Math.max(alvo, v - passo));
+  }
+
   protected animar(nome: string): void {
     this.play(`${this.folha}-${nome}`, true);
   }

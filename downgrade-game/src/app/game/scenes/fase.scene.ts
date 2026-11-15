@@ -8,8 +8,17 @@ import { Catador } from '../inimigos/catador';
 import { Pistoleiro } from '../inimigos/pistoleiro';
 import { CORPO_HUMANO, MEIA_ALTURA_SPRITE, carregarSprites } from '../sprites';
 
+// Movimento com inercia (px/s e px/s²): acelera e freia em vez de mudar de velocidade na hora
 const VELOCIDADE = 270;
+const ACEL_CHAO = 1900;
+const FREIO_CHAO = 2300;
+const ACEL_AR = 1300;
+const FREIO_AR = 520;
+const LENTO_ATACANDO = 0.35; // durante o golpe Marco quase para (peso no ataque)
 const PULO = 560;
+const CORTE_PULO = 0.45; // soltar o pulo cedo corta a subida (pulo de altura variavel)
+const COYOTE_MS = 90; // ainda pode pular logo depois de sair da beirada
+const BUFFER_PULO_MS = 120; // pulo apertado um pouco antes de tocar o chao tambem vale
 const FATOR_OVERTIME = 3;
 const VIDA_MAX = 100;
 const VEL_BALA = 430;
@@ -81,6 +90,9 @@ export class FaseScene extends Phaser.Scene implements Mundo, EstadoFase {
   private noChao = true;
   private velQueda = 0;
   private ultimaPoeira = 0;
+  private coyote = 0;
+  private bufferPulo = 0;
+  private puloCortado = true;
   private hitStopId = 0;
 
   constructor() {
@@ -345,23 +357,13 @@ export class FaseScene extends Phaser.Scene implements Mundo, EstadoFase {
       if (this.vida <= 0) return this.matarMarco('A ESCAMA CONSUMIU MARCO.\nOVERTIME DEMAIS.');
     }
 
-    // Movimento
-    let vx = 0;
-    if (t.A.isDown) vx -= VELOCIDADE;
-    if (t.D.isDown) vx += VELOCIDADE;
-    if (vx !== 0 && !this.atacando) this.direcao = Math.sign(vx);
-    this.corpo.setVelocityX(vx);
-    if ((Phaser.Input.Keyboard.JustDown(t.W) || Phaser.Input.Keyboard.JustDown(t.SPACE)) && this.corpo.blocked.down) {
-      this.corpo.setVelocityY(-PULO);
-      this.marco.play('marco-pulo');
-      this.fx('poeira', 'nuvem', this.marco.x, this.marco.y + 26, { escala: 0.8 });
-    }
+    this.mover(delta);
 
     if (Phaser.Input.Keyboard.JustDown(t.Q)) this.trocarArma();
     if (Phaser.Input.Keyboard.JustDown(t.J)) this.atacar();
     if (this.atacando) this.posicionarCorte();
 
-    this.animarMarco(vx);
+    this.animarMarco(this.entrada());
 
     for (const i of this.inimigos.getChildren() as Inimigo[]) i.pensar(this);
 
@@ -433,6 +435,7 @@ export class FaseScene extends Phaser.Scene implements Mundo, EstadoFase {
     if (Math.abs(Math.cos(ang)) > 0.2) this.direcao = Math.cos(ang) >= 0 ? 1 : -1;
     // ataque para cima, para baixo ou para frente conforme o angulo do mouse
     const anim = graus < -55 && graus > -125 ? 'marco-ataque_cima' : graus > 55 && graus < 125 ? 'marco-ataque_baixo' : 'marco-ataque_frente';
+    this.marco.anims.timeScale = 1;
     this.marco.setFlipX(this.direcao < 0).play(anim);
 
     this.atacando = true;
@@ -464,6 +467,7 @@ export class FaseScene extends Phaser.Scene implements Mundo, EstadoFase {
 
     const ang = this.anguloMira();
     if (Math.abs(Math.cos(ang)) > 0.2) this.direcao = Math.cos(ang) >= 0 ? 1 : -1;
+    this.marco.anims.timeScale = 1;
     this.marco.setFlipX(this.direcao < 0).play('marco-canhao');
     const ox = this.marco.x + this.direcao * 20;
     const oy = this.marco.y - 6;
@@ -522,42 +526,116 @@ export class FaseScene extends Phaser.Scene implements Mundo, EstadoFase {
 
   // ------------------------------------------------------------------ animacao e efeitos
 
-  /** Escolhe a animacao do Marco pelo estado (golpe > ar > aterrissagem > correndo > parado). */
-  private animarMarco(vx: number): void {
-    this.marco.setFlipX(this.direcao < 0);
-    const atual = this.marco.anims.currentAnim?.key ?? '';
-    const tocando = this.marco.anims.isPlaying;
-    const noChao = this.corpo.blocked.down;
+  /** -1, 0 ou 1 conforme A/D. */
+  private entrada(): number {
+    return (this.teclas.D.isDown ? 1 : 0) - (this.teclas.A.isDown ? 1 : 0);
+  }
 
-    if (!this.noChao && noChao) {
-      // acabou de aterrissar
-      if (this.velQueda > 250) {
-        this.fx('poeira', 'nuvem', this.marco.x, this.marco.y + 26);
-        if (vx === 0) this.marco.play('marco-aterrissar');
-      }
+  /** Movimento com inercia, coyote time, buffer de pulo e pulo de altura variavel. */
+  private mover(delta: number): void {
+    const t = this.teclas;
+    // tempo de jogo (no Overtime a fisica anda 3x mais devagar, a aceleracao tambem)
+    const dt = delta / 1000 / this.physics.world.timeScale;
+    const ms = dt * 1000;
+    const entrada = this.entrada();
+    const noChao = this.corpo.blocked.down;
+    const vx = this.corpo.velocity.x;
+
+    if (entrada !== 0 && !this.atacando) this.direcao = entrada;
+
+    const alvo = entrada * VELOCIDADE * (this.atacando ? LENTO_ATACANDO : 1);
+    const acelerando = entrada !== 0 && (vx === 0 || Math.sign(entrada) === Math.sign(vx));
+    const taxa = noChao ? (acelerando ? ACEL_CHAO : FREIO_CHAO) : (acelerando ? ACEL_AR : FREIO_AR);
+    this.corpo.setVelocityX(aproximar(vx, alvo, taxa * dt));
+
+    // pulo
+    this.coyote = noChao ? COYOTE_MS : Math.max(0, this.coyote - ms);
+    const apertou = Phaser.Input.Keyboard.JustDown(t.W) || Phaser.Input.Keyboard.JustDown(t.SPACE);
+    this.bufferPulo = apertou ? BUFFER_PULO_MS : Math.max(0, this.bufferPulo - ms);
+    if (this.bufferPulo > 0 && this.coyote > 0) {
+      this.bufferPulo = 0;
+      this.coyote = 0;
+      this.puloCortado = false;
+      this.corpo.setVelocityY(-PULO);
+      this.marco.play('marco-pulo');
+      this.fx('poeira', 'nuvem', this.marco.x, this.marco.y + 28, { escala: 0.8 });
+    }
+    const segurando = t.W.isDown || t.SPACE.isDown;
+    if (!this.puloCortado && !segurando && this.corpo.velocity.y < -150) {
+      this.corpo.setVelocityY(this.corpo.velocity.y * CORTE_PULO);
+      this.puloCortado = true;
+    }
+  }
+
+  /**
+   * Maquina de estados das animacoes do Marco. Prioridade:
+   * golpe/canhao > no ar > aterrissagem > virada > freada > arrancada > correndo > parado.
+   */
+  private animarMarco(entrada: number): void {
+    const m = this.marco;
+    m.setFlipX(this.direcao < 0);
+    const atual = m.anims.currentAnim?.key ?? '';
+    const tocando = m.anims.isPlaying;
+    const noChao = this.corpo.blocked.down;
+    const vx = this.corpo.velocity.x;
+    if (atual !== 'marco-correr') m.anims.timeScale = 1;
+    const rapido = Math.abs(vx) > 140;
+    const tocar = (chave: string, escala = 1) => {
+      if (atual !== chave || !tocando) m.play(chave);
+      m.anims.timeScale = escala;
+    };
+
+    // acabou de aterrissar
+    if (!this.noChao && noChao && this.velQueda > 250) {
+      this.fx('poeira', 'nuvem', m.x, m.y + 28, { escala: Math.min(1.3, this.velQueda / 500) });
+      if (entrada === 0) m.play('marco-aterrissar');
     }
     this.noChao = noChao;
     this.velQueda = this.corpo.velocity.y;
 
-    const travada = ['marco-ataque_frente', 'marco-ataque_cima', 'marco-ataque_baixo', 'marco-canhao'];
-    if (tocando && travada.includes(atual)) return;
+    const travadas = ['marco-ataque_frente', 'marco-ataque_cima', 'marco-ataque_baixo', 'marco-canhao'];
+    if (tocando && travadas.includes(atual)) return;
 
     if (!noChao) {
       if (tocando && atual === 'marco-pulo') return;
       const vy = this.corpo.velocity.y;
-      this.marco.play(vy < -60 ? 'marco-subindo' : vy > 60 ? 'marco-caindo' : 'marco-apice', true);
+      tocar(vy < -90 ? 'marco-subindo' : vy > 90 ? 'marco-caindo' : 'marco-apice');
       return;
     }
-    if (vx !== 0) {
-      this.marco.play('marco-correr', true);
-      if (this.time.now - this.ultimaPoeira > 260) {
-        this.ultimaPoeira = this.time.now;
-        this.fx('poeira', 'nuvem', this.marco.x - this.direcao * 8, this.marco.y + 28, { escala: 0.5, alfa: 0.6 });
+
+    // inverteu a direcao correndo: virada (o sprite ja olha para o lado novo)
+    if (entrada !== 0 && vx !== 0 && Math.sign(entrada) !== Math.sign(vx) && Math.abs(vx) > 120) {
+      if (atual !== 'marco-virar') {
+        m.play('marco-virar');
+        this.fx('poeira', 'nuvem', m.x, m.y + 28, { escala: 0.7 });
       }
       return;
     }
-    if (tocando && atual === 'marco-aterrissar') return;
-    this.marco.play('marco-parado', true);
+    if (tocando && atual === 'marco-virar') return;
+
+    // soltou o direcional em velocidade: freada com derrapagem
+    if (entrada === 0 && rapido && (atual === 'marco-correr' || atual === 'marco-arrancar')) {
+      m.play('marco-frear');
+      this.fx('poeira', 'nuvem', m.x + this.direcao * 6, m.y + 28, { escala: 0.9 });
+      return;
+    }
+    if (entrada === 0 && tocando && (atual === 'marco-frear' || atual === 'marco-aterrissar')) return;
+
+    if (entrada !== 0) {
+      if (Math.abs(vx) < 120 && ['marco-parado', 'marco-aterrissar', 'marco-frear', ''].includes(atual)) {
+        m.play('marco-arrancar');
+        return;
+      }
+      if (tocando && atual === 'marco-arrancar') return;
+      // a passada acompanha a velocidade (pes nao deslizam)
+      tocar('marco-correr', 0.55 + 0.45 * Math.min(1, Math.abs(vx) / VELOCIDADE));
+      if (this.time.now - this.ultimaPoeira > 300) {
+        this.ultimaPoeira = this.time.now;
+        this.fx('poeira', 'nuvem', m.x - this.direcao * 8, m.y + 29, { escala: 0.45, alfa: 0.5 });
+      }
+      return;
+    }
+    tocar('marco-parado');
   }
 
   private acompanharLuzEscama(): void {
@@ -677,4 +755,9 @@ function lerObjeto(o: Phaser.Types.Tilemaps.TiledObject) {
     ((o.properties ?? []) as { name: string; value: unknown }[]).map((p) => [p.name, p.value]),
   );
   return { tipo, cx: (o.x ?? 0) + w / 2, base: (o.y ?? 0) + h, props };
+}
+
+/** Move `atual` em direcao a `alvo` no maximo `passo` (aceleracao suave). */
+function aproximar(atual: number, alvo: number, passo: number): number {
+  return atual < alvo ? Math.min(alvo, atual + passo) : Math.max(alvo, atual - passo);
 }
