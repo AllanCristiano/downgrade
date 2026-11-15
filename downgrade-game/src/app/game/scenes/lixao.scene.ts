@@ -27,16 +27,19 @@ const REG_MORTES = 'fase.mortes';
  */
 const DEV_LIBERAR_TUDO = true;
 
-type Teclas = Record<'W' | 'A' | 'D' | 'J' | 'K' | 'R' | 'SPACE' | 'SHIFT', Phaser.Input.Keyboard.Key>;
+type Teclas = Record<'W' | 'A' | 'D' | 'J' | 'Q' | 'R' | 'SPACE' | 'SHIFT', Phaser.Input.Keyboard.Key>;
 type Ret = Phaser.GameObjects.Rectangle;
+type Arma = 'espada' | 'canhao';
 
 /** Fase 1 — O Lixão. Marco acabou de acordar a Escama e os Catadores do Rato vieram atrás. */
 export class LixaoScene extends Phaser.Scene implements Mundo {
   marco!: Ret;
   private escama!: Escama;
   private corpo!: Phaser.Physics.Arcade.Body;
-  private corte!: Ret;
+  private corte!: Ret; // hitbox (invisivel)
   private corteCorpo!: Phaser.Physics.Arcade.Body;
+  private lamina!: Ret; // visual do corte, rotacionado para o mouse
+  private mira!: Phaser.GameObjects.Graphics;
   private solidos!: Phaser.Physics.Arcade.StaticGroup;
   private bordasSolidos: Phaser.Geom.Rectangle[] = [];
   private inimigos!: Phaser.Physics.Arcade.Group;
@@ -50,6 +53,8 @@ export class LixaoScene extends Phaser.Scene implements Mundo {
 
   private vida = VIDA_MAX;
   private direcao = 1;
+  private arma: Arma = 'espada';
+  private anguloCorte = 0;
   private atacando = false;
   private ultimoTiro = 0;
   private morto = false;
@@ -65,6 +70,7 @@ export class LixaoScene extends Phaser.Scene implements Mundo {
     this.prepararEscama();
     this.vida = VIDA_MAX;
     this.direcao = 1;
+    this.arma = 'espada';
     this.atacando = false;
     this.morto = false;
     this.concluida = false;
@@ -86,8 +92,13 @@ export class LixaoScene extends Phaser.Scene implements Mundo {
     this.cameras.main.startFollow(this.marco, true, 0.12, 0.12);
 
     this.input.keyboard!.enableGlobalCapture();
-    this.teclas = this.input.keyboard!.addKeys('W,A,D,J,K,R,SPACE,SHIFT') as Teclas;
-    this.input.on('pointerdown', () => (this.morto ? this.tentarDeNovo() : this.atacar()));
+    this.teclas = this.input.keyboard!.addKeys('W,A,D,J,Q,R,SPACE,SHIFT') as Teclas;
+    this.input.setDefaultCursor('none');
+    this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
+      if (!p.leftButtonDown()) return;
+      if (this.morto) this.tentarDeNovo();
+      else this.atacar();
+    });
   }
 
   private prepararEscama(): void {
@@ -149,8 +160,10 @@ export class LixaoScene extends Phaser.Scene implements Mundo {
   }
 
   private criarArmas(): void {
-    // Espada
-    this.corte = this.add.rectangle(0, 0, this.escama.alcanceEspada(), 34, 0xffffff, 0.6).setVisible(false).setDepth(3);
+    // Espada: hitbox quadrada (Arcade nao rotaciona corpos) + lamina visual rotacionada
+    const tamHitbox = this.escama.alcanceEspada() * 0.8;
+    this.corte = this.add.rectangle(0, 0, tamHitbox, tamHitbox).setVisible(false);
+    this.lamina = this.add.rectangle(0, 0, this.escama.alcanceEspada(), 10, 0xffffff, 0.8).setVisible(false).setDepth(3);
     this.physics.add.existing(this.corte);
     this.corteCorpo = this.corte.body as Phaser.Physics.Arcade.Body;
     this.corteCorpo.setAllowGravity(false);
@@ -159,8 +172,9 @@ export class LixaoScene extends Phaser.Scene implements Mundo {
     this.balas = this.physics.add.group({ allowGravity: false });
     this.tirosMarco = this.physics.add.group({ allowGravity: false });
 
-    // Espada mata inimigos
-    this.physics.add.overlap(this.corte, this.inimigos, (a, b) => this.acertar(this.comoInimigo(a, b), this.direcao));
+    // Espada mata inimigos (corpo voa na direcao horizontal do corte)
+    this.physics.add.overlap(this.corte, this.inimigos, (a, b) =>
+      this.acertar(this.comoInimigo(a, b), Math.sign(Math.cos(this.anguloCorte)) || 1));
 
     // Espada nv 2+ rebate balas
     this.physics.add.overlap(this.corte, this.balas, (a, b) => this.rebater(this.comoBala(a, b)));
@@ -196,6 +210,7 @@ export class LixaoScene extends Phaser.Scene implements Mundo {
     this.filtroOvertime = this.add.rectangle(TELA_W / 2, TELA_H / 2, TELA_W, TELA_H, 0x6a00ff, 0)
       .setScrollFactor(0).setDepth(10);
     this.barraVida = this.add.graphics().setScrollFactor(0).setDepth(11);
+    this.mira = this.add.graphics().setDepth(12);
     this.hud = this.add.text(16, 34, '', { fontFamily: 'Courier New', fontSize: '15px', color: '#e8e6ff' })
       .setScrollFactor(0).setDepth(11);
   }
@@ -205,6 +220,8 @@ export class LixaoScene extends Phaser.Scene implements Mundo {
   override update(_time: number, delta: number): void {
     const t = this.teclas;
     if (this.concluida) return;
+
+    this.desenharMira();
 
     if (this.morto) {
       if (Phaser.Input.Keyboard.JustDown(t.R) || Phaser.Input.Keyboard.JustDown(t.J)) this.tentarDeNovo();
@@ -230,8 +247,8 @@ export class LixaoScene extends Phaser.Scene implements Mundo {
       this.corpo.setVelocityY(-PULO);
     }
 
+    if (Phaser.Input.Keyboard.JustDown(t.Q)) this.trocarArma();
     if (Phaser.Input.Keyboard.JustDown(t.J)) this.atacar();
-    if (Phaser.Input.Keyboard.JustDown(t.K)) this.atirar();
     if (this.atacando) this.posicionarCorte();
 
     for (const i of this.inimigos.getChildren() as Inimigo[]) i.pensar(this);
@@ -283,22 +300,39 @@ export class LixaoScene extends Phaser.Scene implements Mundo {
 
   // ------------------------------------------------------------------ acoes de Marco
 
+  /** Q: alterna Espada <-> Canhao (se o Canhao ja foi absorvido). */
+  private trocarArma(): void {
+    if (!this.escama.tem('canhao')) return;
+    this.arma = this.arma === 'espada' ? 'canhao' : 'espada';
+  }
+
+  /** Clique / J: usa a arma atual na direcao do mouse. */
   private atacar(): void {
-    if (this.atacando || this.morto || this.concluida) return;
+    if (this.morto || this.concluida) return;
+    if (this.arma === 'canhao') return this.atirar();
+    if (this.atacando) return;
+
+    this.anguloCorte = this.anguloMira();
+    this.direcao = Math.cos(this.anguloCorte) >= 0 ? 1 : -1;
     this.atacando = true;
-    this.corte.setVisible(true);
+    this.lamina.setVisible(true);
     this.corteCorpo.enable = true;
     this.posicionarCorte();
     this.time.delayedCall(120, () => {
       this.atacando = false;
-      this.corte.setVisible(false);
+      this.lamina.setVisible(false);
       this.corteCorpo.enable = false;
     });
   }
 
+  /** O corte acompanha Marco, mas o angulo fica travado no momento do golpe. */
   private posicionarCorte(): void {
-    this.corte.setPosition(this.marco.x + this.direcao * (this.escama.alcanceEspada() / 2 + 11), this.marco.y);
-    this.corteCorpo.reset(this.corte.x, this.corte.y);
+    const dist = this.escama.alcanceEspada() / 2 + 8;
+    const x = this.marco.x + Math.cos(this.anguloCorte) * dist;
+    const y = this.marco.y + Math.sin(this.anguloCorte) * dist;
+    this.corte.setPosition(x, y);
+    this.corteCorpo.reset(x, y);
+    this.lamina.setPosition(x, y).setRotation(this.anguloCorte);
   }
 
   private atirar(): void {
@@ -306,21 +340,44 @@ export class LixaoScene extends Phaser.Scene implements Mundo {
     if (this.time.now - this.ultimoTiro < this.escama.recargaCanhao()) return;
     this.ultimoTiro = this.time.now;
 
-    const tiro = this.add.rectangle(this.marco.x + this.direcao * 16, this.marco.y - 4, 14, 4, 0xffd166).setDepth(4);
+    const angulo = this.anguloMira();
+    this.direcao = Math.cos(angulo) >= 0 ? 1 : -1;
+    const tiro = this.add.rectangle(
+      this.marco.x + Math.cos(angulo) * 18, this.marco.y - 4 + Math.sin(angulo) * 18, 14, 4, 0xffd166,
+    ).setRotation(angulo).setDepth(4);
     tiro.setData('bala', true);
     this.tirosMarco.add(tiro);
-    (tiro.body as Phaser.Physics.Arcade.Body).setVelocityX(this.direcao * 900);
+    this.physics.velocityFromRotation(angulo, 900, (tiro.body as Phaser.Physics.Arcade.Body).velocity);
     this.time.delayedCall(1200, () => tiro.destroy());
   }
 
+  /** Espada nv 2+: a bala volta na direcao do corte (para onde o mouse mira), mais rapida. */
   private rebater(bala: Ret): void {
     if (this.escama.nivel('espada') < 2 || bala.getData('rebatida')) return;
     const corpo = bala.body as Phaser.Physics.Arcade.Body;
-    corpo.velocity.scale(-1.4);
+    this.physics.velocityFromRotation(this.anguloCorte, VEL_BALA * 1.4, corpo.velocity);
     bala.setData('rebatida', true);
     bala.setFillStyle(0x00f0ff);
-    bala.setRotation(bala.rotation + Math.PI);
+    bala.setRotation(this.anguloCorte);
     this.cameras.main.shake(60, 0.004);
+  }
+
+  /** Angulo de Marco ate o mouse, em coordenadas do mundo (a camera se move). */
+  private anguloMira(): number {
+    const p = this.input.activePointer.positionToCamera(this.cameras.main) as Phaser.Math.Vector2;
+    return Phaser.Math.Angle.Between(this.marco.x, this.marco.y, p.x, p.y);
+  }
+
+  private desenharMira(): void {
+    const p = this.input.activePointer.positionToCamera(this.cameras.main) as Phaser.Math.Vector2;
+    const cor = this.arma === 'canhao' ? 0xffd166 : 0xffffff;
+    this.mira.clear();
+    this.mira.lineStyle(2, cor, 0.9);
+    this.mira.strokeCircle(p.x, p.y, 7);
+    this.mira.lineBetween(p.x - 12, p.y, p.x - 4, p.y);
+    this.mira.lineBetween(p.x + 4, p.y, p.x + 12, p.y);
+    this.mira.lineBetween(p.x, p.y - 12, p.x, p.y - 4);
+    this.mira.lineBetween(p.x, p.y + 4, p.x, p.y + 12);
   }
 
   private acertar(inimigo: Inimigo, direcao: number): void {
@@ -387,9 +444,9 @@ export class LixaoScene extends Phaser.Scene implements Mundo {
     this.hud.setText(
       `${tempo.toFixed(2)}s · Mortes: ${this.registry.get(REG_MORTES) ?? 0}\n` +
       (restantes > 0 ? `Inimigos: ${restantes}` : 'Lixão limpo! Vá até a saída →') +
-      `\nEspada nv${hab.espada.nivel}` +
-      (hab.canhao.desbloqueada ? ` · Canhão nv${hab.canhao.nivel}` : '') +
-      (hab.overtime.desbloqueada ? ` · Overtime nv${hab.overtime.nivel}` : ''),
+      `\n${this.arma === 'espada' ? '▶ ESPADA' : '  Espada'} nv${hab.espada.nivel}` +
+      (hab.canhao.desbloqueada ? `   ${this.arma === 'canhao' ? '▶ CANHÃO' : '  Canhão'} nv${hab.canhao.nivel}   (Q troca)` : '') +
+      (hab.overtime.desbloqueada ? `\nOvertime nv${hab.overtime.nivel} (Shift)` : ''),
     );
   }
 }

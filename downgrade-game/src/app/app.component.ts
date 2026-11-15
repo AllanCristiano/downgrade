@@ -68,7 +68,7 @@ function lerNome(): string {
           </div>
         }
       </div>
-      <p class="help">A/D mover · W/Espaço pular · J/clique Espada · K Canhão · Shift Overtime (drena vida) · R reiniciar</p>
+      <p class="help">A/D mover · W/Espaço pular · Clique/J atacar na direção do mouse · Q troca Espada/Canhão · Shift Overtime (drena vida) · R reiniciar</p>
     </main>
   `,
   styles: [`
